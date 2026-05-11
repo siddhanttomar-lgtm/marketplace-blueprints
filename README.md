@@ -29,7 +29,7 @@ Every blueprint in this repository is a fully self-contained Kubernetes deployme
 | [Redmine](blueprints/redmine/README.md) | 5.1.4 | Developer Tools |
 | [Gitea](blueprints/gitea/README.md) | 1.24.5 | Developer Tools |
 | [Jenkins](blueprints/jenkins/README.md) | 2.516.2 | Developer Tools |
-| [Jenkins + Maven](blueprints/jenkins-maven/README.md) | 2.492 | Developer Tools |
+| [Jenkins with Maven](blueprints/jenkins-maven/README.md) | 2.492 | Developer Tools |
 | [Keycloak](blueprints/keycloak/README.md) | 26.3.3 | Security |
 | [OpenClaw](blueprints/openclaw/README.md) | slim | AI / LLM Gateway |
 | [etcd](blueprints/etcd/README.md) | 3.6.4 | Databases / Storage |
@@ -344,8 +344,8 @@ This triggers the CI workflow which:
 
 | | |
 |--|--|
-| [Contributing](CONTRIBUTING.md) | How to add a new blueprint or improve an existing one |
-| [Developer Guide](DEVELOPER.md) | Internal notes for maintainers |
+| [Contributors Guide](CONTRIBUTING.md) | Steps to add a new blueprint or improve an existing one |
+| [Reference Guide (Optional)](DEVELOPER.md) | Reference file  |
 
 ---
 
