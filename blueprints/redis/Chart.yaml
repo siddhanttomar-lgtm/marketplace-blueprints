@@ -1,0 +1,17 @@
+apiVersion: v2
+name: redis
+description: Redis in-memory data store — standalone deployment with authentication and persistent storage.
+type: application
+version: 1.0.0
+appVersion: "7.4.1"
+keywords:
+  - redis
+  - cache
+  - database
+  - key-value
+home: https://redis.io
+sources:
+  - https://github.com/redis/redis
+maintainers:
+  - name: E2E Networks
+    url: https://e2enetworks.com

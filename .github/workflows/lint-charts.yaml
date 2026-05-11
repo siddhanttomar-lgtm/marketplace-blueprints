@@ -1,0 +1,31 @@
+name: Lint Charts
+
+on:
+  pull_request:
+    paths:
+      - 'blueprints/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: latest
+
+      - name: Lint all charts
+        run: |
+          set -e
+          rc=0
+          found=0
+          for chart in blueprints/*/; do
+            [ -f "${chart}Chart.yaml" ] || continue
+            echo "Linting $chart..."
+            helm lint "$chart" --strict || rc=1
+            found=1
+          done
+          [ "$found" -eq 1 ] || echo "No charts found — skipping"
+          exit $rc

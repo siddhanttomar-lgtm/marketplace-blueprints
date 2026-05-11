@@ -1,0 +1,20 @@
+# etcd — example values
+# helm install etcd blueprints/etcd -f my-values.yaml
+
+auth:
+  rbac:
+    create: false          # set true and provide rootPassword for production
+
+service:
+  type: NodePort
+
+persistence:
+  size: 8Gi
+  storageClass: ""
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi

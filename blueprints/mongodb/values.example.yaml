@@ -1,0 +1,19 @@
+# MongoDB — example values
+# helm install mongodb blueprints/mongodb -f my-values.yaml
+
+auth:
+  enabled: true
+  rootPassword: "YOUR-STRONG-PASSWORD"
+  database: "mydb"         # optional
+
+service:
+  type: NodePort
+
+persistence:
+  size: 8Gi
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi

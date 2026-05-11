@@ -1,0 +1,30 @@
+# Redmine — example configuration
+# Copy this file, fill in required values, and pass to helm install:
+#   helm install redmine blueprints/redmine -f my-values.yaml
+
+# ── Required ──────────────────────────────────────────────────────────────────
+
+redmineUsername: admin
+redminePassword: "YOUR-STRONG-PASSWORD-HERE"
+redmineEmail: "admin@example.com"
+
+# ── Networking ────────────────────────────────────────────────────────────────
+
+service:
+  type: LoadBalancer    # use NodePort if LoadBalancer is not available
+
+# ── Database (bundled MariaDB) ────────────────────────────────────────────────
+
+mariadb:
+  auth:
+    rootPassword: "YOUR-DB-ROOT-PASSWORD-HERE"
+  primary:
+    persistence:
+      size: 8Gi
+      storageClass: ""    # leave empty for cluster default
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+
+persistence:
+  size: 8Gi
+  storageClass: ""
