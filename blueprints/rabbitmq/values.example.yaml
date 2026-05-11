@@ -1,0 +1,18 @@
+# RabbitMQ — example values
+# helm install rabbitmq blueprints/rabbitmq -f my-values.yaml
+
+auth:
+  username: user
+  password: "YOUR-STRONG-PASSWORD"
+
+service:
+  type: NodePort
+
+persistence:
+  size: 8Gi
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi

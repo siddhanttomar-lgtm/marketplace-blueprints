@@ -1,0 +1,31 @@
+# OpenClaw — example configuration
+# Copy this file, fill in required values, and pass to helm install:
+#   helm install openclaw blueprints/openclaw -f my-values.yaml
+
+# ── Required ──────────────────────────────────────────────────────────────────
+
+gateway:
+  # Change this token — anyone with it can use the gateway
+  token: "YOUR-GATEWAY-TOKEN-HERE"
+
+  # ── LLM Provider Keys (set at least one) ────────────────────────────────────
+  anthropicApiKey: ""       # Claude models
+  openaiApiKey: ""          # GPT-4 and other OpenAI models
+  geminiApiKey: ""          # Google Gemini models
+  openrouterApiKey: ""      # OpenRouter (multi-provider)
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+
+persistence:
+  size: 2Gi
+  storageClass: ""          # leave empty for cluster default
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 2Gi
+    cpu: "1"

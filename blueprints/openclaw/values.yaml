@@ -1,0 +1,28 @@
+image:
+  repository: ghcr.io/openclaw/openclaw
+  tag: slim
+  pullPolicy: IfNotPresent
+
+gateway:
+  # Token required to authenticate with the OpenClaw gateway API.
+  # Change this before production — anyone with this token can use the gateway.
+  token: "ChangeMe@Gateway123"
+  # Optional API keys — leave empty if not needed
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  geminiApiKey: ""
+  openrouterApiKey: ""
+
+persistence:
+  size: 2Gi
+  storageClass: ""
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 2Gi
+    cpu: "1"
+
+nodeSelector: {}

@@ -1,0 +1,19 @@
+# Grafana — example values
+# helm install grafana blueprints/grafana -f my-values.yaml
+
+admin:
+  user: admin
+  password: "YOUR-ADMIN-PASSWORD"
+
+service:
+  type: NodePort
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
