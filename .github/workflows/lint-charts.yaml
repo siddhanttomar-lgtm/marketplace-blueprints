@@ -17,15 +17,4 @@ jobs:
           version: latest
 
       - name: Lint all charts
-        run: |
-          set -e
-          rc=0
-          found=0
-          for chart in blueprints/*/; do
-            [ -f "${chart}Chart.yaml" ] || continue
-            echo "Linting $chart..."
-            helm lint "$chart" --strict || rc=1
-            found=1
-          done
-          [ "$found" -eq 1 ] || echo "No charts found — skipping"
-          exit $rc
+        run: make lint
