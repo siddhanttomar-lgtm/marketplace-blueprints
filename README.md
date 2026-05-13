@@ -261,6 +261,68 @@ helm uninstall <release-name>
 
 ---
 
+## Troubleshooting
+
+If your pod does not reach `Running` state, these are the three most common causes.
+
+**Check what is happening first:**
+
+```bash
+kubectl get pods                     # see pod status
+kubectl describe pod <pod-name>      # why it won't start — read the Events section
+kubectl logs <pod-name>              # what the app is complaining about
+```
+
+---
+
+### Pod stuck in `Pending`
+
+The pod is waiting to be scheduled — the cluster cannot place it yet.
+
+**Common causes:**
+
+| Cause | How to confirm | Fix |
+|-------|---------------|-----|
+| Not enough CPU or memory on any node | `kubectl describe pod <pod-name>` → Events shows `Insufficient cpu` or `Insufficient memory` | Free up resources or add a node |
+| No PersistentVolume provisioner | Events shows `no persistent volumes available` | Set `persistence.storageClass` in your `my-values.yaml` to a valid storage class — run `kubectl get storageclass` to see what is available |
+| Node is not Ready | `kubectl get nodes` shows `NotReady` | Fix the node before deploying |
+
+---
+
+### Pod stuck in `ImagePullBackOff`
+
+Kubernetes cannot download the container image.
+
+**Common causes:**
+
+| Cause | How to confirm | Fix |
+|-------|---------------|-----|
+| Node has no internet access | `kubectl describe pod <pod-name>` → Events shows `failed to pull image` | Check node network connectivity |
+| Registry rate limit (Docker Hub) | Events shows `toomanyrequests` | Wait a few minutes and try again, or configure a registry mirror |
+
+---
+
+### Pod stuck in `CrashLoopBackOff`
+
+The container starts but immediately exits — the application crashed.
+
+**Common causes:**
+
+| Cause | How to confirm | Fix |
+|-------|---------------|-----|
+| Empty or missing required password | `kubectl logs <pod-name>` shows auth or config error | Set the required password in `my-values.yaml` and run `helm upgrade` |
+| Wrong configuration value | Logs show startup failure | Check the blueprint's `README.md` for required values, fix `my-values.yaml`, run `helm upgrade` |
+
+**To apply a fix without reinstalling:**
+
+```bash
+# Edit my-values.yaml, then run:
+helm upgrade <release-name> blueprints/<name> -f my-values.yaml
+kubectl get pods   # watch the pod restart
+```
+
+---
+
 ## Helm Repository
 
 > **Note:** The commands below work only after the first chart has been officially released and GitHub Pages is active. Until then, use the steps above (installing from source) — they always work.
@@ -344,8 +406,9 @@ This triggers the CI workflow which:
 
 | | |
 |--|--|
-| [Contributors Guide](CONTRIBUTING.md) | Steps to add a new blueprint or improve an existing one |
+| [Contributing Guide](CONTRIBUTING.md) | Steps to add a new blueprint or improve an existing one |
 | [Reference Guide (Optional)](DEVELOPER.md) | Reference file  |
+| [Changelog](CHANGELOG.md) | History of blueprint additions and updates |
 
 ---
 

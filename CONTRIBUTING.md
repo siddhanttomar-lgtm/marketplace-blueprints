@@ -48,6 +48,19 @@ git checkout -b blueprint/myapp
 
 Every blueprint lives under `blueprints/{name}/` where `{name}` is lowercase and hyphen-separated (e.g. `redis`, `apache-kafka`, `my-app`).
 
+**Use the scaffolding script to create the folder skeleton automatically:**
+
+```bash
+bash scripts/new-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
+```
+
+Example:
+```bash
+bash scripts/new-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+```
+
+This creates `blueprints/mysql/` with all required files pre-filled. Then edit the `TODO` placeholders and continue with the steps below.
+
 **Required structure:**
 
 ```
@@ -199,11 +212,17 @@ Keep the table sorted by category, then alphabetically by name within each categ
 
 ## Step 6 — Commit and Push
 
-Stage only the files that belong to your change:
+Before committing, update two files:
+
+1. **`README.md`** — add your blueprint to the Available Blueprints table
+2. **`CHANGELOG.md`** — add an entry under `[Unreleased]` with the blueprint name, version, and a one-line description
+
+Then stage and commit:
 
 ```bash
 git add blueprints/{name}/
-git add README.md   # if you updated the table
+git add README.md
+git add CHANGELOG.md
 git commit -m "feat: add {name} blueprint v{appVersion}"
 git push origin blueprint/{name}
 ```
