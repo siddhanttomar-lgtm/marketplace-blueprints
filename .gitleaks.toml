@@ -1,0 +1,13 @@
+title = "marketplace-blueprints gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore placeholder values in example config files"
+paths = [
+  '''values\.example\.yaml$''',
+]
+regexes = [
+  '''YOUR-[A-Z0-9_-]+''',
+]
