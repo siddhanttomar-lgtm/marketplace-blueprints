@@ -11,9 +11,6 @@ paths = [
 regexes = [
   '''YOUR-[A-Z0-9_-]+''',
   '''examplepass''',
-<<<<<<< HEAD
   '''password:\s+password''',
   '''-----BEGIN [A-Z ]+-----\s*\\\s*\n\s*\.\.\.\s*\\\s*\n\s*-----END [A-Z ]+-----''',
-=======
->>>>>>> ee65396 (fix: restore gitignored secret templates, fix gitleaks vendored charts)
 ]
