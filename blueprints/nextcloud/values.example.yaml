@@ -1,0 +1,39 @@
+# Nextcloud — example values
+# helm install nextcloud blueprints/nextcloud -f my-values.yaml
+
+nextcloud:
+  host: nextcloud.example.com
+  username: admin
+  password: "YOUR-ADMIN-PASSWORD"
+
+service:
+  type: NodePort
+  port: 80
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+# Use MariaDB (bundled, simpler) or PostgreSQL
+mariadb:
+  enabled: true
+  auth:
+    database: nextcloud
+    username: nextcloud
+    password: "YOUR-DB-PASSWORD"
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# Disable Redis if not needed
+redis:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

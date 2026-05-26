@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-umami-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: umami-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami-mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami-mcp") | nindent 8 }}
+    spec:
+      containers:
+        - name: umami-mcp
+          image: "{{ .Values.umamiMcp.image.repository }}:{{ .Values.umamiMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.umamiMcp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3334
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3334
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3334
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.umamiMcp.resources | nindent 12 }}

@@ -10,29 +10,34 @@ Every blueprint in this repository is a fully self-contained Kubernetes deployme
 
 | Blueprint | Version | Category |
 |-----------|---------|----------|
-| [Redis](blueprints/redis/README.md) | 7.4.1 | Databases / Cache |
-| [PostgreSQL](blueprints/postgresql/README.md) | 18.3.0 | Databases |
-| [MongoDB](blueprints/mongodb/README.md) | 8.2.6 | Databases |
+| [ClickHouse](blueprints/clickhouse/README.md) | 25.7.5 | Databases |
+| [InfluxDB](blueprints/influxdb/README.md) | 3.4.1 | Databases |
 | [MariaDB](blueprints/mariadb/README.md) | 12.2.2 | Databases |
 | [Memcached](blueprints/memcached/README.md) | 1.6.41 | Databases / Cache |
-| [InfluxDB](blueprints/influxdb/README.md) | 3.4.1 | Databases |
-| [ClickHouse](blueprints/clickhouse/README.md) | 25.7.5 | Databases |
-| [RabbitMQ](blueprints/rabbitmq/README.md) | 4.1.3 | Messaging |
+| [MongoDB](blueprints/mongodb/README.md) | 8.2.6 | Databases |
+| [MySQL](blueprints/mysql/README.md) | 9.4.0 | Databases |
+| [PostgreSQL](blueprints/postgresql/README.md) | 18.3.0 | Databases |
+| [Redis](blueprints/redis/README.md) | 7.4.1 | Databases / Cache |
+| [Valkey](blueprints/valkey/README.md) | 9.1.0 | Databases / Cache |
+| [Apache Kafka](blueprints/kafka/README.md) | 4.0.0 | Messaging |
 | [NATS](blueprints/nats/README.md) | 2.11.8 | Messaging |
-| [Kafka](blueprints/kafka/README.md) | 4.0.0 | Messaging |
+| [RabbitMQ](blueprints/rabbitmq/README.md) | 4.1.3 | Messaging |
 | [Grafana](blueprints/grafana/README.md) | 12.1.1 | Monitoring |
+| [Prometheus](blueprints/prometheus/README.md) | 29.8.0 | Monitoring |
 | [Nginx](blueprints/nginx/README.md) | 1.29.6 | Web Servers |
 | [Apache Tomcat](blueprints/tomcat/README.md) | 11.0.20 | Web Servers |
+| [Nextcloud](blueprints/nextcloud/README.md) | 33.0.3 | Collaboration |
 | [WordPress](blueprints/wordpress/README.md) | 6.9.1 | CMS |
-| [Drupal](blueprints/drupal/README.md) | 11.2.3 | CMS |
-| [phpMyAdmin](blueprints/phpmyadmin/README.md) | 5.2.2 | Developer Tools |
-| [Redmine](blueprints/redmine/README.md) | 5.1.4 | Developer Tools |
 | [Gitea](blueprints/gitea/README.md) | 1.24.5 | Developer Tools |
-| [Jenkins](blueprints/jenkins/README.md) | 2.516.2 | Developer Tools |
 | [Jenkins with Maven](blueprints/jenkins-maven/README.md) | 2.492 | Developer Tools |
 | [Keycloak](blueprints/keycloak/README.md) | 26.3.3 | Security |
+| [Mattermost](blueprints/mattermost/README.md) | 9.11.2 | Collaboration |
 | [OpenClaw](blueprints/openclaw/README.md) | slim | AI / LLM Gateway |
-| [etcd](blueprints/etcd/README.md) | 3.6.4 | Databases / Storage |
+| [Claw Analytics Agent](blueprints/ai-analytics-agent/README.md) | 1.0.0 | AI / Agents |
+| [Claw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 1.0.0 | AI / Agents |
+| [Open WebUI with Ollama](blueprints/open-webui/README.md) | 1.0.0 | AI / LLM |
+| [OpenClaw Personal Assistant](blueprints/ai-personal-assistant/README.md) | 1.0.0 | AI / Agents |
+| [RAG Knowledge Base](blueprints/rag-kb/README.md) | 1.0.0 | AI / RAG |
 | [n8n](blueprints/n8n/README.md) | 1.122.4 | Automation |
 
 > New blueprints are added regularly. To propose or contribute one, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -355,8 +360,9 @@ marketplace-blueprints/
 │       ├── Chart.yaml              ← chart name, version, app version
 │       ├── values.yaml             ← all default settings
 │       ├── values.example.yaml     ← copy this and fill in your values
-│       ├── values.schema.json      ← validates your inputs (where present)
 │       ├── .helmignore             ← keeps docs out of the packaged chart
+│       ├── charts/                 ← vendored dependencies (where applicable)
+│       ├── Chart.lock              ← pinned dependency versions (where applicable)
 │       ├── templates/              ← Kubernetes manifests
 │       └── README.md               ← what it does, ports, quick-start
 ├── scripts/
