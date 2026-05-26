@@ -13,4 +13,5 @@ regexes = [
   '''YOUR-[A-Z0-9_-]+''',
   '''examplepass''',
   '''password:\s+password''',
+  '''-----BEGIN [A-Z ]+-----\s*\\\s*\n\s*\.\.\.\s*\\\s*\n\s*-----END [A-Z ]+-----''',
 ]
