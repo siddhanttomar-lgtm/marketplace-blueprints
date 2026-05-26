@@ -6,7 +6,7 @@ image:
 gateway:
   # Token required to authenticate with the OpenClaw gateway API.
   # Change this before production — anyone with this token can use the gateway.
-  token: "ChangeMe@Gateway123"
+  token: ""
   # Optional API keys — leave empty if not needed
   anthropicApiKey: ""
   openaiApiKey: ""
