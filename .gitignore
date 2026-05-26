@@ -12,7 +12,8 @@
 *.swo
 *~
 
-# Local values files with real credentials
+# Local values files with real credentials (root-level only)
 my-values.yaml
 local-values.yaml
-*-secret.yaml
+/*-secret.yaml
+!blueprints/

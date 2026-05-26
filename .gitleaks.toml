@@ -4,10 +4,12 @@ title = "marketplace-blueprints gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Ignore placeholder values in example config files"
+description = "Ignore placeholder values and vendored upstream charts"
 paths = [
   '''values\.example\.yaml$''',
+  '''blueprints/[^/]+/charts/''',
 ]
 regexes = [
   '''YOUR-[A-Z0-9_-]+''',
+  '''examplepass''',
 ]
