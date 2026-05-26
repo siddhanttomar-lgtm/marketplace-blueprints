@@ -1,12 +1,8 @@
-# Packaged Helm charts
-*.tgz
-
-# Helm dependency cache
-charts/
-Chart.lock
+# Packaged Helm charts (root-level only — not vendored deps inside charts/)
+/*.tgz
+.cr-release-packages/*.tgz
 
 # chart-releaser output
-.cr-release-packages/
 .cr-index/
 
 # Editor and OS files
