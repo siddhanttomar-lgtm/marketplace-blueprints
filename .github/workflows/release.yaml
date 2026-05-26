@@ -1,0 +1,31 @@
+name: Release Charts
+
+on:
+  push:
+    tags:
+      - '*-v*'    # e.g. redis-v1.0.0
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: latest
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        with:
+          charts_dir: blueprints
+          config: .cr.yaml
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,94 @@
+openclaw:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "slim"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 5Gi
+  # REQUIRED: Gateway auth token — change before production
+  gatewayToken: ""
+  # At least one AI API key required
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  googleApiKey: ""
+  groqApiKey: ""
+  # Fireworks AI key (testing/dev — OpenAI-compatible, uses deepseek-v4-pro)
+  # Get one at fireworks.ai — set this if you don't have a native key yet
+  fireworksApiKey: ""
+  # Optional: Gmail credentials for outbound email sending
+  # Use a Gmail App Password (myaccount.google.com/apppasswords) — NOT your regular password
+  gmailUser: ""
+  gmailAppPassword: ""
+  # SDR persona shown in conversations
+  sdrName: "Alex"
+  companyName: ""
+  # Optional: custom OpenAI-compatible endpoint (Fireworks, DeepSeek, Together AI, etc.)
+  # e.g. "https://api.fireworks.ai/inference/v1"
+  openaiApiBase: ""
+  # Optional enrichment APIs
+  jinaAiKey: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+twenty:
+  image:
+    repository: twentycrm/twenty
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 5Gi
+  # REQUIRED: 64-char hex secret — default provided for convenience, change in production
+  appSecret: ""
+  # Set to your actual external URL after deploy for correct email/webhook links
+  # Default uses internal service — works for API but external links will be wrong
+  serverUrl: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+postgres:
+  image:
+    repository: twentycrm/twenty-postgres
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 10Gi
+  user: "twenty"
+  password: ""
+  database: "twenty"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+redis:
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "500m"
+      memory: 256Mi
+
+telegram:
+  # Optional — if set, enables a Telegram bot that bridges to the SDR agent.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  botToken: ""
+
+nodeSelector: {}

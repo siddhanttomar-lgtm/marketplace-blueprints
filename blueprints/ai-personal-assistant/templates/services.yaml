@@ -1,0 +1,36 @@
+{{/* Primary service — name matches release name so platform ingress routes here */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "apa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  type: NodePort
+  selector:
+    {{- include "apa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 4 }}
+  ports:
+    - name: gateway
+      port: 18789
+      targetPort: 18789
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "apa.openclawHost" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "apa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  type: NodePort
+  selector:
+    {{- include "apa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 4 }}
+  ports:
+    - name: gateway
+      port: 18789
+      targetPort: 18789
+      protocol: TCP

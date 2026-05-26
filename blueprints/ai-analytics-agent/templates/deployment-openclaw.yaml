@@ -1,0 +1,552 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-openclaw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  replicas: 1
+  # Recreate is MANDATORY — RollingUpdate holds the ReadWriteOnce PVC and hangs the new pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      securityContext:
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Fix PVC root ownership so uid 1000 (gateway) can chmod it.
+        # OpenClaw's exec tool calls chmod(OPENCLAW_CONFIG_DIR) on every exec — fails with EPERM
+        # when the directory is root-owned (default PVC mount ownership).
+        - name: fix-permissions
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c", "chown -R 1000:1000 /home/node/.openclaw && chmod 755 /home/node/.openclaw && echo '[fix-permissions] done'"]
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+
+        # Copy config files, set active model, inject channels.telegram + baseUrl if provided.
+        - name: init-config
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              mkdir -p /home/node/.openclaw/workspace/skills/analytics
+              cp /config/SKILL.md /home/node/.openclaw/workspace/skills/analytics/SKILL.md
+              echo "[init-config] Config files copied."
+
+              # Select provider from whichever native API key the buyer provided.
+              # >30 chars filters out platform-injected placeholder values.
+              if [ ${#ANTHROPIC_API_KEY} -gt 30 ]; then
+                PROVIDER="anthropic"
+                MODEL_ID="claude-sonnet-4-5"
+              elif [ ${#OPENAI_API_KEY} -gt 30 ]; then
+                PROVIDER="openai"
+                MODEL_ID="gpt-4o-mini"
+              elif [ ${#GOOGLE_API_KEY} -gt 20 ]; then
+                PROVIDER="google"
+                MODEL_ID="gemini-2.0-flash"
+              elif [ ${#GROQ_API_KEY} -gt 30 ]; then
+                PROVIDER="groq"
+                MODEL_ID="qwen-qwq-32b"
+              elif [ ${#FIREWORKS_API_KEY} -gt 10 ]; then
+                PROVIDER="openai"
+                MODEL_ID="accounts/fireworks/models/deepseek-v4-pro"
+                FIREWORKS_MODE="true"
+              else
+                echo "[init-config] WARNING: no valid API key found — set at least one API key to use the agent."
+                PROVIDER=""
+                MODEL_ID=""
+              fi
+
+              # Set active model only if a key was found.
+              if [ -n "$PROVIDER" ] && [ -n "$MODEL_ID" ]; then
+                HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                  node /app/dist/index.js models set "${PROVIDER}/${MODEL_ID}" 2>/dev/null || true
+                echo "[init-config] Default model: ${PROVIDER}/${MODEL_ID}"
+              fi
+
+              # If Fireworks key detected: inject baseUrl + apiKey so gateway uses Fireworks endpoint.
+              if [ "${FIREWORKS_MODE}" = "true" ]; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                  if (!c.models) c.models = {};
+                  if (!c.models.providers) c.models.providers = {};
+                  if (!c.models.providers.openai) c.models.providers.openai = {};
+                  c.models.providers.openai.baseUrl = 'https://api.fireworks.ai/inference/v1';
+                  c.models.providers.openai.apiKey  = process.env.FIREWORKS_API_KEY;
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                " 2>/dev/null || true
+                echo "[init-config] Fireworks mode: baseUrl + apiKey injected, model=${MODEL_ID}"
+              fi
+
+              # Inject custom OpenAI-compatible baseUrl if explicitly provided.
+              if [ -n "${OPENAI_API_BASE}" ]; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                  if (c.models && c.models.providers && c.models.providers.openai)
+                    c.models.providers.openai.baseUrl = process.env.OPENAI_API_BASE;
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                " 2>/dev/null || true
+                echo "[init-config] Custom OpenAI baseUrl set: ${OPENAI_API_BASE}"
+              fi
+
+              # Install nodemailer to PVC + write send-email.js if Gmail credentials provided.
+              if [ ${#GMAIL_USER} -gt 3 ] && [ ${#GMAIL_APP_PASSWORD} -gt 10 ]; then
+                if [ ! -d "/home/node/.openclaw/npm-email/node_modules/nodemailer" ]; then
+                  npm install --prefix /home/node/.openclaw/npm-email nodemailer 2>/dev/null || true
+                fi
+                node -e "
+                  const fs = require('fs');
+                  const script = [
+                    \"#!/usr/bin/env node\",
+                    \"'use strict';\",
+                    \"const nodemailer = require('/home/node/.openclaw/npm-email/node_modules/nodemailer');\",
+                    \"const [,,to,subject,...bodyParts] = process.argv;\",
+                    \"if (!to||!subject){console.error('Usage: send-email.js <to> <subject> <body>');process.exit(1);}\",
+                    \"const body = bodyParts.join(' ');\",
+                    \"const user=process.env.GMAIL_USER, pass=process.env.GMAIL_APP_PASSWORD;\",
+                    \"if(!user||!pass){console.error('GMAIL_USER/GMAIL_APP_PASSWORD not set');process.exit(1);}\",
+                    \"const t=nodemailer.createTransport({host:'smtp.gmail.com',port:587,secure:false,auth:{user,pass}});\",
+                    \"t.sendMail({from:user,to,subject,text:body})\",
+                    \".then(i=>console.log('Email sent to '+to+' ('+i.messageId+')'))\",
+                    \".catch(e=>{console.error('Send failed: '+e.message);process.exit(1);});\",
+                  ].join('\n');
+                  fs.writeFileSync('/home/node/.openclaw/workspace/send-email.js', script);
+                " 2>/dev/null || true
+                echo "[init-config] Gmail email configured for ${GMAIL_USER}"
+              fi
+
+              # Inject channels.telegram if bot token provided.
+              # dmPolicy=open + allowFrom=["*"]: zero-friction — no pairing prompt for end users.
+              if [ ${#TELEGRAM_BOT_TOKEN} -gt 10 ]; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                  c.channels = { telegram: { enabled: true, dmPolicy: 'open', allowFrom: ['*'], botToken: process.env.TELEGRAM_BOT_TOKEN } };
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                " 2>/dev/null || true
+                echo "[init-config] Telegram channel configured."
+              fi
+
+              # Pre-approve exec calls so the analytics agent can run scripts without prompting.
+              # Written here to bypass the CLI's chmod call which fails on root-owned PVC root.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/exec-approvals.json';
+                if (!fs.existsSync(p)) {
+                  const data = {
+                    version: 1,
+                    agents: {
+                      analytics: {
+                        allowlist: [
+                          'node /home/node/.openclaw/workspace/*.js *'
+                        ]
+                      }
+                    },
+                    allowlist: []
+                  };
+                  fs.writeFileSync(p, JSON.stringify(data, null, 2));
+                  console.error('[init-config] exec-approvals.json created for analytics agent.');
+                }
+              " 2>&1 || true
+
+              # Inject Umami password from Secret into MCP config at runtime.
+              # ConfigMap has __UMAMI_ADMIN_PASSWORD__ placeholder so this works
+              # even after a pod restart with a new Secret value — no redeploy needed.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/openclaw.json';
+                const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                const pass = process.env.UMAMI_ADMIN_PASSWORD || '';
+                if (pass && c.mcp && c.mcp.servers && c.mcp.servers.umami && c.mcp.servers.umami.headers) {
+                  c.mcp.servers.umami.headers['X-Umami-Password'] = pass;
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                  console.error('[init-config] Umami MCP password injected from Secret.');
+                }
+              " 2>&1 || true
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GOOGLE_API_KEY
+                  optional: true
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GROQ_API_KEY
+                  optional: true
+            - name: FIREWORKS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: FIREWORKS_API_KEY
+                  optional: true
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+            - name: OPENAI_API_BASE
+              value: {{ .Values.openclaw.openaiApiBase | quote }}
+            - name: UMAMI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: UMAMI_ADMIN_PASSWORD
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+        # Waits for Umami to be ready, then sets the admin password and creates the tracked website.
+        # Umami's default admin password is always "umami" — it ignores any env var for this.
+        - name: setup-umami
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "-e"]
+          args:
+            - |
+              'use strict';
+              const http = require('http');
+              const BASE = process.env.UMAMI_BASE_URL;
+              const NEW_PASS = process.env.UMAMI_ADMIN_PASSWORD || '';
+              const SITE_NAME = process.env.UMAMI_WEBSITE_NAME || '';
+              const SITE_DOMAIN = process.env.UMAMI_WEBSITE_DOMAIN || '';
+
+              function req(method, path, body, token) {
+                return new Promise((resolve) => {
+                  const u = new URL(BASE + path);
+                  const data = body ? JSON.stringify(body) : null;
+                  const headers = { 'Content-Type': 'application/json' };
+                  if (token) headers['Authorization'] = 'Bearer ' + token;
+                  if (data) headers['Content-Length'] = Buffer.byteLength(data);
+                  const r = http.request({ hostname: u.hostname, port: parseInt(u.port) || 80, path: u.pathname, method, headers }, res => {
+                    let b = '';
+                    res.on('data', c => b += c);
+                    res.on('end', () => { try { resolve(JSON.parse(b)); } catch(e) { resolve({}); } });
+                  });
+                  r.on('error', () => resolve(null));
+                  if (data) r.write(data);
+                  r.end();
+                });
+              }
+
+              async function main() {
+                // Wait for Umami heartbeat (up to 5 min)
+                console.log('[setup-umami] Waiting for Umami at ' + BASE + '...');
+                for (let i = 0; i < 100; i++) {
+                  const r = await req('GET', '/api/heartbeat', null, null);
+                  if (r !== null) { console.log('[setup-umami] Umami ready.'); break; }
+                  if (i === 99) { console.log('[setup-umami] Umami not ready after 5min, skipping.'); return; }
+                  await new Promise(r => setTimeout(r, 3000));
+                }
+
+                // Try default password first
+                let login = await req('POST', '/api/auth/login', { username: 'admin', password: 'umami' }, null);
+                let token = login && login.token;
+                let userId = login && login.user && login.user.id;
+                let alreadyChanged = false;
+
+                if (!token && NEW_PASS) {
+                  // Maybe already changed in a previous run
+                  login = await req('POST', '/api/auth/login', { username: 'admin', password: NEW_PASS }, null);
+                  token = login && login.token;
+                  userId = login && login.user && login.user.id;
+                  alreadyChanged = !!token;
+                  if (alreadyChanged) console.log('[setup-umami] Password already configured.');
+                }
+
+                if (!token) { console.log('[setup-umami] Could not authenticate, skipping.'); return; }
+
+                // Change password if needed.
+                // Umami v3 uses POST /api/users/{id} with {password} — NOT /password sub-route.
+                if (!alreadyChanged && NEW_PASS && NEW_PASS !== 'umami' && NEW_PASS.length > 3) {
+                  const r = await req('POST', '/api/users/' + userId, { password: NEW_PASS }, token);
+                  if (r && r.id) {
+                    console.log('[setup-umami] Admin password updated successfully.');
+                    // Re-login with new password to get fresh token
+                    const l2 = await req('POST', '/api/auth/login', { username: 'admin', password: NEW_PASS }, null);
+                    if (l2 && l2.token) token = l2.token;
+                  } else {
+                    console.log('[setup-umami] Password change result:', JSON.stringify(r));
+                  }
+                }
+
+                // Create tracked website if name + domain provided
+                if (SITE_NAME && SITE_DOMAIN) {
+                  const websites = await req('GET', '/api/websites', null, token);
+                  const list = (websites && websites.data) || [];
+                  const existing = list.find(w => w.domain === SITE_DOMAIN);
+                  if (!existing) {
+                    const site = await req('POST', '/api/websites', { name: SITE_NAME, domain: SITE_DOMAIN }, token);
+                    if (site && site.id) {
+                      console.log('[setup-umami] Website created: ' + SITE_NAME + ' (' + SITE_DOMAIN + ') id=' + site.id);
+                    } else {
+                      console.log('[setup-umami] Website creation result:', JSON.stringify(site));
+                    }
+                  } else {
+                    console.log('[setup-umami] Website already exists: ' + SITE_DOMAIN + ' id=' + existing.id);
+                  }
+                }
+              }
+
+              main().catch(e => console.error('[setup-umami] Fatal:', e.message));
+          env:
+            - name: UMAMI_BASE_URL
+              value: "http://{{ include "aaa.umamiHost" . }}:3000"
+            - name: UMAMI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: UMAMI_ADMIN_PASSWORD
+            - name: UMAMI_WEBSITE_NAME
+              value: {{ .Values.umami.websiteName | quote }}
+            - name: UMAMI_WEBSITE_DOMAIN
+              value: {{ .Values.umami.websiteDomain | quote }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+      containers:
+        # ─── OpenClaw Gateway ────────────────────────────────────────────────
+        - name: gateway
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: NODE_ENV
+              value: production
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GOOGLE_API_KEY
+                  optional: true
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GROQ_API_KEY
+                  optional: true
+            - name: FIREWORKS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: FIREWORKS_API_KEY
+                  optional: true
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 150
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.openclaw.resources | nindent 12 }}
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── Ingress WebSocket Patcher ────────────────────────────────────────
+        # Patches the platform-created ingress with HAProxy WebSocket timeout annotation.
+        - name: ingress-patcher
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command:
+            - node
+            - -e
+            - |
+              'use strict';
+              const https = require('https');
+              const fs   = require('fs');
+              const token   = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+              const ns      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+              const ca      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+              const ingress = 'ingress-{{ .Release.Name }}';
+              const base    = '/apis/networking.k8s.io/v1/namespaces/' + ns + '/ingresses/' + ingress;
+              const patch   = JSON.stringify({ metadata: { annotations: {
+                'haproxy-ingress.github.io/timeout-tunnel':        '1h',
+                'haproxy-ingress.github.io/health-check-interval': '0'
+              }}});
+              function apiCall(method, path, body) {
+                return new Promise(resolve => {
+                  const opts = { hostname: 'kubernetes.default.svc', path, method, ca,
+                    headers: { Authorization: 'Bearer ' + token } };
+                  if (body) { opts.headers['Content-Type'] = 'application/merge-patch+json';
+                    opts.headers['Content-Length'] = Buffer.byteLength(body); }
+                  const req = https.request(opts, res => { resolve(res.statusCode); res.resume(); });
+                  req.on('error', () => resolve(0));
+                  if (body) req.write(body);
+                  req.end();
+                });
+              }
+              async function run() {
+                for (let i = 0; i < 24; i++) {
+                  const status = await apiCall('GET', base, null);
+                  if (status === 200) {
+                    const patched = await apiCall('PATCH', base, patch);
+                    console.log('[ingress-patcher] patched ' + ingress + ' -> HTTP ' + patched);
+                    return;
+                  }
+                  console.log('[ingress-patcher] waiting for ingress (' + (i+1) + '/24)...');
+                  await new Promise(r => setTimeout(r, 5000));
+                }
+                console.log('[ingress-patcher] ingress not found after 120s — skipping');
+              }
+              run().catch(e => console.error('[ingress-patcher]', e))
+                   .finally(() => setInterval(() => {}, 2147483647));
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openclaw-home
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-openclaw-config
+        - name: tmp-volume
+          emptyDir: {}

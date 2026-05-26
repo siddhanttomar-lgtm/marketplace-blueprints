@@ -1,0 +1,18 @@
+Redis {{ .Chart.AppVersion }} has been deployed.
+
+Get the NodePort:
+  kubectl get svc {{ include "redis.fullname" . }} \
+    -o jsonpath='{.spec.ports[0].nodePort}'
+
+Get the node IP:
+  kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}'
+
+Connect:
+  {{- if .Values.auth.password }}
+  redis-cli -h <node-ip> -p <nodeport> -a <your-password>
+  {{- else }}
+  redis-cli -h <node-ip> -p <nodeport>
+  {{- end }}
+
+Check pod status:
+  kubectl get pods -l {{ include "redis.selectorLabels" . | replace "\n" "," }}

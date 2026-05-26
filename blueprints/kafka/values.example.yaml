@@ -1,0 +1,23 @@
+# Apache Kafka — example values
+# helm install kafka blueprints/kafka -f my-values.yaml
+
+replicaCount: 1
+
+service:
+  type: NodePort
+
+# Disable SASL for development (use SASL_PLAINTEXT + password for production)
+listeners:
+  client:
+    protocol: PLAINTEXT
+
+persistence:
+  size: 8Gi
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    memory: 1Gi

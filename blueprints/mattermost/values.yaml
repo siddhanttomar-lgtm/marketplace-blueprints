@@ -1,0 +1,30 @@
+image:
+  repository: mattermost/mattermost-team-edition
+  tag: "9.11.2"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8065
+
+siteUrl: ""
+
+data:
+  storageSize: "10Gi"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+postgresql:
+  auth:
+    username: mattermost
+    password: ""
+    database: mattermost
+  primary:
+    persistence:
+      size: "10Gi"

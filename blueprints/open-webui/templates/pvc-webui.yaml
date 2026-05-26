@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-webui-data
+  labels:
+    {{- include "open-webui.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.webui.storage.size }}
+  {{- if .Values.webui.storage.storageClass }}
+  storageClassName: {{ .Values.webui.storage.storageClass }}
+  {{- end }}

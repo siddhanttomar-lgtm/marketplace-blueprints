@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ollama
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-kb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-kb.selectorLabels" (dict "release" .Release.Name "component" "ollama") | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "rag-kb.selectorLabels" (dict "release" .Release.Name "component" "ollama") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Pull models on first start. Cold start: nomic-embed-text ~1min, llama3.2:3b ~5-10min on CPU node.
+        - name: pull-models
+          image: {{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}
+          imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              ollama serve &
+              SERVER_PID=$!
+              echo "Waiting for ollama to start..."
+              until ollama list >/dev/null 2>&1; do sleep 2; done
+              echo "Pulling embedding model {{ .Values.ollama.models.embedding }}..."
+              ollama pull {{ .Values.ollama.models.embedding }}
+              echo "Pulling generation model {{ .Values.ollama.models.generation }}..."
+              ollama pull {{ .Values.ollama.models.generation }}
+              echo "Models ready. Stopping temp server."
+              kill $SERVER_PID
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+      containers:
+        - name: ollama
+          image: {{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}
+          imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: OLLAMA_MODELS
+              value: /root/.ollama/models
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "2"
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/version
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-ollama-models
