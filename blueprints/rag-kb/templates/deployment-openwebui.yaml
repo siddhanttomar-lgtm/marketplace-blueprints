@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-openwebui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-kb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openwebui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-kb.selectorLabels" (dict "release" .Release.Name "component" "openwebui") | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "rag-kb.selectorLabels" (dict "release" .Release.Name "component" "openwebui") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: openwebui
+          image: {{ .Values.openwebui.image.repository }}:{{ .Values.openwebui.image.tag }}
+          imagePullPolicy: {{ .Values.openwebui.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Ollama connection
+            - name: OLLAMA_BASE_URL
+              value: http://{{ .Release.Name }}-ollama:11434
+            # Qdrant vector store
+            - name: VECTOR_DB
+              value: qdrant
+            - name: QDRANT_URI
+              value: http://{{ .Release.Name }}-qdrant:6333
+            # Embedding via Ollama (CPU-compatible, 137MB model)
+            - name: RAG_EMBEDDING_ENGINE
+              value: ollama
+            - name: RAG_EMBEDDING_MODEL
+              value: {{ .Values.ollama.models.embedding | quote }}
+            - name: RAG_OLLAMA_BASE_URL
+              value: http://{{ .Release.Name }}-ollama:11434
+            # Admin bootstrap
+            - name: WEBUI_ADMIN_EMAIL
+              value: {{ .Values.openwebui.adminEmail | quote }}
+            - name: WEBUI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: OPENWEBUI_ADMIN_PASSWORD
+            # Disable signup for security (admin-only by default)
+            - name: WEBUI_AUTH
+              value: "true"
+            - name: DEFAULT_USER_ROLE
+              value: "user"
+            # Data directory
+            - name: DATA_DIR
+              value: /app/backend/data
+            # Process 1 chunk at a time — reduces CPU burst, prevents Qdrant starvation timeout
+            - name: RAG_EMBEDDING_OPENAI_BATCH_SIZE
+              value: "1"
+            - name: PDF_EXTRACT_IMAGES
+              value: "false"
+            # Retrieve more chunks for better coverage
+            - name: RAG_TOP_K
+              value: "6"
+            # Prompt template — cites sources, transparent when info not in KB
+            - name: RAG_TEMPLATE
+              value: "Use the following context to answer the question. If the answer is found in the context, cite the relevant part. If the information is not available in the context, say 'This information is not in the provided documents' and then answer from general knowledge if helpful.\n\nContext:\n[context]\n\nQuestion: [query]"
+          resources:
+            {{- toYaml .Values.openwebui.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /app/backend/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openwebui-data

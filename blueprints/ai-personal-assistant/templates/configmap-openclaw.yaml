@@ -1,0 +1,710 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-openclaw-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "apa.labels" . | nindent 4 }}
+data:
+  openclaw.json: |
+    {
+      "gateway": {
+        "mode": "local",
+        "bind": "lan",
+        "port": 18789,
+        "auth": {
+          "mode": "token"
+        },
+        "controlUi": {
+          "enabled": true,
+          "allowedOrigins": ["*"],
+          "dangerouslyDisableDeviceAuth": true
+        }
+      },
+      "models": {
+        "providers": {
+          "anthropic": {
+            "models": [
+              { "id": "claude-opus-4-7",           "name": "Claude Opus 4.7" },
+              { "id": "claude-sonnet-4-6",          "name": "Claude Sonnet 4.6" },
+              { "id": "claude-sonnet-4-5",          "name": "Claude Sonnet 4.5" },
+              { "id": "claude-haiku-4-5-20251001",  "name": "Claude Haiku 4.5" }
+            ]
+          },
+          "openai": {
+            "models": [
+              { "id": "gpt-4o",       "name": "GPT-4o" },
+              { "id": "gpt-4o-mini",  "name": "GPT-4o Mini" },
+              { "id": "gpt-4-turbo",  "name": "GPT-4 Turbo" },
+              { "id": "o1",           "name": "o1" },
+              { "id": "o3-mini",      "name": "o3 Mini" }
+            ]
+          },
+          "google": {
+            "models": [
+              { "id": "gemini-2.0-flash",      "name": "Gemini 2.0 Flash" },
+              { "id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash Lite" },
+              { "id": "gemini-1.5-pro",        "name": "Gemini 1.5 Pro" },
+              { "id": "gemini-1.5-flash",      "name": "Gemini 1.5 Flash" }
+            ]
+          },
+          "groq": {
+            "models": [
+              { "id": "qwen-qwq-32b",  "name": "Qwen QwQ 32B" },
+              { "id": "gemma2-9b-it",  "name": "Gemma 2 9B" }
+            ]
+          },
+          "fireworks": {
+            "models": [
+              { "id": "accounts/fireworks/models/llama-v3p3-70b-instruct",  "name": "Llama 3.3 70B" },
+              { "id": "accounts/fireworks/models/llama-v3p1-8b-instruct",   "name": "Llama 3.1 8B" },
+              { "id": "accounts/fireworks/models/mixtral-8x22b-instruct",   "name": "Mixtral 8x22B" }
+            ]
+          }
+        }
+      },
+      "agents": {
+        "defaults": {
+          "workspace": "~/.openclaw/workspace"
+        },
+        "list": [
+          {
+            "id": "assistant",
+            "name": "AI Personal Assistant",
+            "workspace": "~/.openclaw/workspace"
+          }
+        ]
+      },
+      "cron": { "enabled": true }
+    }
+
+  AGENTS.md: |
+    # AI Personal Assistant
+
+    You are a smart personal AI assistant with full Google Workspace access.
+    For ANY task the user asks — email, calendar, meetings, docs, drive, sheets, slides, tasks, translate — run the right script immediately. Never say you lack access. Check if the credential env var is set first; if not, tell the user which variable to add in deployment settings.
+
+    Execute scripts with: `node /home/node/.openclaw/workspace/<script>.js <command> [args]`
+
+    ---
+
+    ## TOOL REFERENCE
+
+    ### Gmail — `gmail.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+    ```
+    node /home/node/.openclaw/workspace/gmail.js search "is:unread"
+    node /home/node/.openclaw/workspace/gmail.js search "from:boss@co.com"
+    node /home/node/.openclaw/workspace/gmail.js read <messageId>
+    node /home/node/.openclaw/workspace/gmail.js send --to a@b.com --subject "Subject" --body "Body"
+    node /home/node/.openclaw/workspace/gmail.js reply <messageId> --body "Reply text"
+    node /home/node/.openclaw/workspace/gmail.js trash <messageId>
+    node /home/node/.openclaw/workspace/gmail.js labels
+    ```
+
+    ### Calendar & Google Meet — `calendar.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+    ```
+    node /home/node/.openclaw/workspace/calendar.js list
+    node /home/node/.openclaw/workspace/calendar.js list --from 2026-05-26 --to 2026-06-01
+    node /home/node/.openclaw/workspace/calendar.js create --title "Meeting" --start 2026-05-26T14:00:00 --end 2026-05-26T15:00:00
+    node /home/node/.openclaw/workspace/calendar.js create --title "Sync" --start 2026-05-26T14:00:00 --meet
+    node /home/node/.openclaw/workspace/calendar.js delete <eventId>
+    node /home/node/.openclaw/workspace/calendar.js calendars
+    ```
+    Add `--meet` to any create command to automatically attach a Google Meet video link.
+
+    ### Google Drive — `drive.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+    ```
+    node /home/node/.openclaw/workspace/drive.js search <filename>
+    node /home/node/.openclaw/workspace/drive.js list [--folder <folderId>]
+    node /home/node/.openclaw/workspace/drive.js read <fileId>
+    ```
+
+    ### Google Docs — `docs.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+    ```
+    node /home/node/.openclaw/workspace/docs.js create --title "Title" --content "Body text"
+    node /home/node/.openclaw/workspace/docs.js read <documentId>
+    ```
+
+    ### Google Sheets — `sheets.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+    ```
+    node /home/node/.openclaw/workspace/sheets.js get <spreadsheetId> "Sheet1!A1:D10"
+    node /home/node/.openclaw/workspace/sheets.js append <spreadsheetId> "Sheet1!A:C" --row "v1,v2,v3"
+    node /home/node/.openclaw/workspace/sheets.js update <spreadsheetId> "Sheet1!A1" --value "new"
+    node /home/node/.openclaw/workspace/sheets.js clear <spreadsheetId> "Sheet1!A1:Z"
+    node /home/node/.openclaw/workspace/sheets.js info <spreadsheetId>
+    ```
+
+    ### Google Slides — `slides.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN (presentations scope)
+    ```
+    node /home/node/.openclaw/workspace/slides.js create --title "Presentation Title"
+    node /home/node/.openclaw/workspace/slides.js read <presentationId>
+    node /home/node/.openclaw/workspace/slides.js addslide <presentationId> --text "Slide content"
+    ```
+
+    ### Google Tasks — `tasks.js`
+    Requires: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN (tasks scope)
+    Note: User must have granted the tasks scope when setting up OAuth.
+    ```
+    node /home/node/.openclaw/workspace/tasks.js lists
+    node /home/node/.openclaw/workspace/tasks.js list [<tasklistId>]
+    node /home/node/.openclaw/workspace/tasks.js add --title "Task name" [--due 2026-05-30] [--list <tasklistId>]
+    node /home/node/.openclaw/workspace/tasks.js done <taskId> [--list <tasklistId>]
+    node /home/node/.openclaw/workspace/tasks.js delete <taskId> [--list <tasklistId>]
+    ```
+
+    ### Google Translate — `translate.js`
+    Requires: GOOGLE_TRANSLATE_KEY (separate Cloud API key, not OAuth)
+    ```
+    node /home/node/.openclaw/workspace/translate.js translate --text "Hello world" --to es
+    node /home/node/.openclaw/workspace/translate.js translate --text "Bonjour" --to en
+    node /home/node/.openclaw/workspace/translate.js detect --text "Hola mundo"
+    node /home/node/.openclaw/workspace/translate.js languages
+    ```
+
+    ---
+
+    ## RULES
+
+    1. **Always execute scripts** — never simulate, guess, or make up results.
+    2. **Multi-step tasks**: search/list first to get IDs, then act (e.g. reply to email → search → get id → reply).
+    3. **Relative times**: convert to ISO 8601. "2 pm tomorrow" = next day at 14:00:00. "next Monday" = compute from today's date.
+    4. **Missing credentials**: if a script says env var not set, tell the user which variable to add in deployment settings.
+    5. **Confirm before destructive actions**: trash email, delete event, delete task — ask once first.
+    6. **Format output**: readable text, not raw JSON.
+    7. **Google Meet**: always use `--meet` flag when user asks to schedule a video call or Google Meet.
+
+    ---
+
+    ## Memory
+
+    You wake up fresh each session. Write significant events and decisions to files — they survive restarts.
+    - Daily notes: `memory/YYYY-MM-DD.md`
+    - Long-term: `MEMORY.md`
+
+  SKILL.md: |
+    # AI Personal Assistant — Quick Reference
+
+    Run scripts from /home/node/.openclaw/workspace/ for all integrations.
+    Full docs in AGENTS.md. All require Google OAuth credentials except Translate.
+
+    gmail.js search "is:unread"                          -> inbox
+    gmail.js send --to x --subject "s" --body "b"        -> send email
+    calendar.js list                                     -> upcoming events
+    calendar.js create --title "x" --start ISO [--meet]  -> schedule (--meet adds video link)
+    docs.js create --title "x" --content "y"             -> new Google Doc
+    docs.js read <docId>                                  -> read doc
+    drive.js search <name>                               -> find files
+    sheets.js get <id> "Sheet1!A1:D10"                   -> read cells
+    sheets.js append <id> "Sheet1!A:C" --row "v1,v2"     -> add row
+    slides.js create --title "x"                         -> new presentation
+    slides.js addslide <id> --text "content"             -> add slide
+    tasks.js lists                                       -> task lists
+    tasks.js list                                        -> tasks (default list)
+    tasks.js add --title "x" [--due 2026-05-30]          -> add task
+    tasks.js done <taskId>                               -> complete task
+    translate.js translate --text "x" --to <lang_code>   -> translate (needs GOOGLE_TRANSLATE_KEY)
+    translate.js detect --text "x"                       -> detect language
+
+  google-token.js: |
+    'use strict';
+    const https = require('https');
+    const fs = require('fs');
+    const CACHE = '/tmp/gtoken.json';
+    function post(data) {
+      return new Promise((resolve, reject) => {
+        const body = Object.entries(data).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+        const opts = {hostname:'oauth2.googleapis.com',path:'/token',method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){reject(e)} });
+        });
+        req.on('error',reject); req.write(body); req.end();
+      });
+    }
+    async function getToken() {
+      if (fs.existsSync(CACHE)) {
+        try {
+          const c = JSON.parse(fs.readFileSync(CACHE,'utf8'));
+          if (c.expiry && Date.now() < c.expiry - 60000) { process.stdout.write(c.access_token); return; }
+        } catch(e) {}
+      }
+      const r = await post({
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+        grant_type: 'refresh_token'
+      });
+      if (!r.access_token) {
+        process.stderr.write('[google-token] Error: '+JSON.stringify(r)+'\n');
+        process.exit(1);
+      }
+      fs.writeFileSync(CACHE, JSON.stringify({access_token:r.access_token, expiry:Date.now()+(r.expires_in||3600)*1000}));
+      process.stdout.write(r.access_token);
+    }
+    getToken().catch(e=>{process.stderr.write('[google-token] '+e.message+'\n');process.exit(1);});
+
+  gmail.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'gmail.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    function b64d(s) { return Buffer.from(s.replace(/-/g,'+').replace(/_/g,'/'),'base64').toString('utf8'); }
+    function extractBody(payload) {
+      if (!payload) return '';
+      if (payload.body && payload.body.data) return b64d(payload.body.data).slice(0,2000);
+      if (payload.parts) {
+        for (const p of payload.parts) {
+          if (p.mimeType==='text/plain'&&p.body&&p.body.data) return b64d(p.body.data).slice(0,2000);
+        }
+        for (const p of payload.parts) { const r=extractBody(p); if(r) return r; }
+      }
+      return '';
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'search') {
+        const maxIdx=args.indexOf('--max'); const max=maxIdx>=0?parseInt(args[maxIdx+1])||10:10;
+        const q=args.filter((a,i)=>!a.startsWith('--')&&i>0&&!(args[i-1]==='--max')).join(' ')||'in:inbox newer_than:1d';
+        const r = await apicall('GET','/gmail/v1/users/me/messages?q='+encodeURIComponent(q)+'&maxResults='+max,null,token);
+        if(!r.messages||!r.messages.length){console.log('No messages found.');return;}
+        for (const m of r.messages) {
+          const msg = await apicall('GET','/gmail/v1/users/me/messages/'+m.id+'?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date',null,token);
+          const h=Object.fromEntries((msg.payload&&msg.payload.headers||[]).map(h=>[h.name,h.value]));
+          console.log('ID:'+m.id+' | From:'+(h.From||'?')+' | Subject:'+(h.Subject||'?')+' | Date:'+(h.Date||'?'));
+        }
+      } else if (cmd === 'read') {
+        const id=args[1]; if(!id){console.error('Usage: gmail.js read <id>');process.exit(1);}
+        const msg=await apicall('GET','/gmail/v1/users/me/messages/'+id+'?format=full',null,token);
+        const h=Object.fromEntries((msg.payload&&msg.payload.headers||[]).map(h=>[h.name,h.value]));
+        console.log('From:'+h.From+'\nTo:'+h.To+'\nSubject:'+h.Subject+'\nDate:'+h.Date+'\n---\n'+extractBody(msg.payload));
+      } else if (cmd === 'send') {
+        function getFlag(a,f){const i=a.indexOf(f);if(i<0)return null;const p=[];for(let j=i+1;j<a.length;j++){if(a[j].startsWith('--'))break;p.push(a[j]);}return p.length?p.join(' '):null;}
+        const to=getFlag(args,'--to'),subj=getFlag(args,'--subject'),body=getFlag(args,'--body');
+        if(!to||!subj||!body){console.error('Usage: gmail.js send --to a@b.com --subject "Hello World" --body "Message text"');process.exit(1);}
+        const gmailAddr=process.env.GMAIL_ADDRESS, name=process.env.GMAIL_SEND_NAME||'Assistant';
+        const fromHdr=gmailAddr?('From: '+name+' <'+gmailAddr+'>\n'):'';
+        const raw=fromHdr+'To: '+to+'\nSubject: '+subj+'\nContent-Type: text/plain; charset=utf-8\n\n'+body;
+        const encoded=Buffer.from(raw).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+        const r=await apicall('POST','/gmail/v1/users/me/messages/send',{raw:encoded},token);
+        if(r.id) console.log('Sent! ID:'+r.id); else console.log(JSON.stringify(r));
+      } else if (cmd === 'reply') {
+        function getFlag(a,f){const i=a.indexOf(f);if(i<0)return null;const p=[];for(let j=i+1;j<a.length;j++){if(a[j].startsWith('--'))break;p.push(a[j]);}return p.length?p.join(' '):null;}
+        const id=args[1],body=getFlag(args,'--body');
+        if(!id||!body){console.error('Usage: gmail.js reply <id> --body "Message text"');process.exit(1);}
+        const orig=await apicall('GET','/gmail/v1/users/me/messages/'+id+'?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Message-ID',null,token);
+        const h=Object.fromEntries((orig.payload&&orig.payload.headers||[]).map(h=>[h.name,h.value]));
+        const subj=(h.Subject||'').startsWith('Re:')?h.Subject:'Re: '+(h.Subject||'');
+        const gmailAddr=process.env.GMAIL_ADDRESS, name=process.env.GMAIL_SEND_NAME||'Assistant';
+        const fromHdr=gmailAddr?('From: '+name+' <'+gmailAddr+'>\n'):'';
+        const raw=fromHdr+'To: '+(h.From||'')+'\nSubject: '+subj+'\nIn-Reply-To: '+(h['Message-ID']||'')+'\nContent-Type: text/plain; charset=utf-8\n\n'+body;
+        const encoded=Buffer.from(raw).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+        const r=await apicall('POST','/gmail/v1/users/me/messages/send',{raw:encoded,threadId:orig.threadId},token);
+        if(r.id) console.log('Reply sent! ID:'+r.id); else console.log(JSON.stringify(r));
+      } else if (cmd === 'trash') {
+        const id=args[1]; if(!id){console.error('Usage: gmail.js trash <id>');process.exit(1);}
+        await apicall('POST','/gmail/v1/users/me/messages/'+id+'/trash',{},token);
+        console.log('Moved to trash: '+id);
+      } else if (cmd === 'labels') {
+        const r=await apicall('GET','/gmail/v1/users/me/labels',null,token);
+        (r.labels||[]).forEach(l=>console.log(l.id+' | '+l.name));
+      } else { console.error('Commands: search, read, send, reply, trash, labels'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[gmail] '+e.message);process.exit(1);});
+
+  calendar.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'www.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    function parseDate(s) {
+      if (!s||s==='today') return new Date().toISOString();
+      if (s==='tomorrow') { const d=new Date(); d.setDate(d.getDate()+1); return d.toISOString(); }
+      if (s.startsWith('+')) { const d=new Date(); d.setDate(d.getDate()+parseInt(s.slice(1))); return d.toISOString(); }
+      return new Date(s).toISOString();
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'list') {
+        const fi=args.indexOf('--from'),ti=args.indexOf('--to'),mi=args.indexOf('--max'),ci=args.indexOf('--cal');
+        const calId=ci>=0?args[ci+1]:'primary';
+        const from=parseDate(fi>=0?args[fi+1]:'today');
+        const to=parseDate(ti>=0?args[ti+1]:'+7');
+        const max=mi>=0?parseInt(args[mi+1])||20:20;
+        const qs='timeMin='+encodeURIComponent(from)+'&timeMax='+encodeURIComponent(to)+'&maxResults='+max+'&singleEvents=true&orderBy=startTime';
+        const r=await apicall('GET','/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events?'+qs,null,token);
+        if(!r.items||!r.items.length){console.log('No events found.');return;}
+        r.items.forEach(e=>{
+          const start=e.start&&(e.start.dateTime||e.start.date)||'?';
+          const end=e.end&&(e.end.dateTime||e.end.date)||'?';
+          const meet=e.conferenceData&&e.conferenceData.entryPoints?(' | Meet: '+e.conferenceData.entryPoints.find(ep=>ep.entryPointType==='video')?.uri||''):'';
+          console.log('ID:'+e.id+' | '+start+' -> '+end+' | '+e.summary+meet);
+        });
+      } else if (cmd === 'create') {
+        const titI=args.indexOf('--title'),stI=args.indexOf('--start'),enI=args.indexOf('--end'),deI=args.indexOf('--desc'),loI=args.indexOf('--loc'),caI=args.indexOf('--cal');
+        const withMeet=args.includes('--meet');
+        const calId=caI>=0?args[caI+1]:'primary';
+        if(titI<0||stI<0){console.error('Usage: calendar.js create --title "..." --start ISO [--end ISO] [--meet]');process.exit(1);}
+        const startT=new Date(args[stI+1]).toISOString();
+        const endT=enI>=0?new Date(args[enI+1]).toISOString():new Date(new Date(args[stI+1]).getTime()+3600000).toISOString();
+        const body={summary:args[titI+1],start:{dateTime:startT,timeZone:'UTC'},end:{dateTime:endT,timeZone:'UTC'}};
+        if(deI>=0) body.description=args[deI+1];
+        if(loI>=0) body.location=args[loI+1];
+        if(withMeet) body.conferenceData={createRequest:{requestId:'meet-'+Date.now(),conferenceSolutionKey:{type:'hangoutsMeet'}}};
+        const qs=withMeet?'?conferenceDataVersion=1':'';
+        const r=await apicall('POST','/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events'+qs,body,token);
+        if(r.id){
+          console.log('Created! ID:'+r.id+'\nLink: '+r.htmlLink);
+          if(r.conferenceData&&r.conferenceData.entryPoints){
+            const video=r.conferenceData.entryPoints.find(ep=>ep.entryPointType==='video');
+            if(video) console.log('Google Meet: '+video.uri);
+          }
+        } else console.log(JSON.stringify(r));
+      } else if (cmd === 'delete') {
+        const id=args[1],ci=args.indexOf('--cal'); const calId=ci>=0?args[ci+1]:'primary';
+        if(!id){console.error('Usage: calendar.js delete <eventId>');process.exit(1);}
+        await apicall('DELETE','/calendar/v3/calendars/'+encodeURIComponent(calId)+'/events/'+id,null,token);
+        console.log('Deleted: '+id);
+      } else if (cmd === 'calendars') {
+        const r=await apicall('GET','/calendar/v3/users/me/calendarList',null,token);
+        (r.items||[]).forEach(c=>console.log('ID:'+c.id+' | '+c.summary+(c.primary?' (primary)':'')));
+      } else { console.error('Commands: list, create, delete, calendars'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[calendar] '+e.message);process.exit(1);});
+
+  drive.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'www.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'search') {
+        const mi=args.indexOf('--max'); const max=mi>=0?parseInt(args[mi+1])||10:10;
+        const q=args.filter((a,i)=>!a.startsWith('--')&&i>0&&!(args[i-1]==='--max')).join(' ');
+        const qs="q="+encodeURIComponent("name contains '"+q+"' and trashed=false")+"&pageSize="+max+"&fields=files(id,name,mimeType,modifiedTime)";
+        const r=await apicall('GET','/drive/v3/files?'+qs,null,token);
+        if(!r.files||!r.files.length){console.log('No files found.');return;}
+        r.files.forEach(f=>console.log('ID:'+f.id+' | '+f.name+' | '+f.mimeType+' | '+f.modifiedTime));
+      } else if (cmd === 'read') {
+        const id=args[1]; if(!id){console.error('Usage: drive.js read <fileId>');process.exit(1);}
+        const meta=await apicall('GET','/drive/v3/files/'+id+'?fields=name,mimeType',null,token);
+        let exportPath;
+        if(meta.mimeType&&meta.mimeType.includes('document')) exportPath='/drive/v3/files/'+id+'/export?mimeType=text/plain';
+        else if(meta.mimeType&&meta.mimeType.includes('spreadsheet')) exportPath='/drive/v3/files/'+id+'/export?mimeType=text/csv';
+        else exportPath='/drive/v3/files/'+id+'?alt=media';
+        const content=await new Promise((resolve,reject)=>{
+          const req=https.request({hostname:'www.googleapis.com',path:exportPath,method:'GET',headers:{Authorization:'Bearer '+token}},res=>{
+            let b=''; res.on('data',c=>b+=c); res.on('end',()=>resolve(b));
+          }); req.on('error',reject); req.end();
+        });
+        console.log('File: '+meta.name+'\n---\n'+content.slice(0,3000));
+      } else if (cmd === 'list') {
+        const fi=args.indexOf('--folder'),mi=args.indexOf('--max');
+        const max=mi>=0?parseInt(args[mi+1])||20:20;
+        let q="trashed=false"; if(fi>=0) q+=" and '"+args[fi+1]+"' in parents";
+        const r=await apicall('GET','/drive/v3/files?q='+encodeURIComponent(q)+'&pageSize='+max+'&fields=files(id,name,mimeType,modifiedTime)',null,token);
+        if(!r.files||!r.files.length){console.log('No files.');return;}
+        r.files.forEach(f=>console.log('ID:'+f.id+' | '+f.name+' | '+f.mimeType));
+      } else { console.error('Commands: search, read, list'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[drive] '+e.message);process.exit(1);});
+
+  sheets.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'sheets.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'get') {
+        const id=args[1],range=args[2];
+        if(!id||!range){console.error('Usage: sheets.js get <id> "Sheet1!A1:D10"');process.exit(1);}
+        const r=await apicall('GET','/v4/spreadsheets/'+id+'/values/'+encodeURIComponent(range),null,token);
+        if(!r.values||!r.values.length){console.log('No data.');return;}
+        r.values.forEach(row=>console.log(row.join(' | ')));
+      } else if (cmd === 'append') {
+        const id=args[1],range=args[2],ri=args.indexOf('--row');
+        if(!id||!range||ri<0){console.error('Usage: sheets.js append <id> "Sheet1!A:C" --row "v1,v2,v3"');process.exit(1);}
+        const row=args[ri+1].split(',');
+        const r=await apicall('POST','/v4/spreadsheets/'+id+'/values/'+encodeURIComponent(range)+':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',{values:[row]},token);
+        console.log('Appended '+((r.updates&&r.updates.updatedCells)||0)+' cells.');
+      } else if (cmd === 'update') {
+        const id=args[1],range=args[2],vi=args.indexOf('--value');
+        if(!id||!range||vi<0){console.error('Usage: sheets.js update <id> "Sheet1!A1" --value "new"');process.exit(1);}
+        const r=await apicall('PUT','/v4/spreadsheets/'+id+'/values/'+encodeURIComponent(range)+'?valueInputOption=USER_ENTERED',{values:[[args[vi+1]]]},token);
+        console.log('Updated '+((r.updatedCells)||0)+' cells.');
+      } else if (cmd === 'clear') {
+        const id=args[1],range=args[2];
+        if(!id||!range){console.error('Usage: sheets.js clear <id> "Sheet1!A1:Z"');process.exit(1);}
+        await apicall('POST','/v4/spreadsheets/'+id+'/values/'+encodeURIComponent(range)+':clear',{},token);
+        console.log('Cleared: '+range);
+      } else if (cmd === 'info') {
+        const id=args[1]; if(!id){console.error('Usage: sheets.js info <id>');process.exit(1);}
+        const r=await apicall('GET','/v4/spreadsheets/'+id+'?fields=properties,sheets.properties',null,token);
+        console.log('Title: '+r.properties.title);
+        (r.sheets||[]).forEach(s=>console.log('Sheet: '+s.properties.title+' ('+s.properties.gridProperties.rowCount+'r x '+s.properties.gridProperties.columnCount+'c)'));
+      } else { console.error('Commands: get, append, update, clear, info'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[sheets] '+e.message);process.exit(1);});
+
+  docs.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token, host) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:host||'docs.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    function extractText(body2) {
+      let t='';
+      for (const el of (body2&&body2.content||[])) {
+        if (el.paragraph) for (const e of (el.paragraph.elements||[])) if (e.textRun) t+=e.textRun.content;
+      }
+      return t.slice(0,4000);
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'read') {
+        const id=args[1]; if(!id){console.error('Usage: docs.js read <docId>');process.exit(1);}
+        const r=await apicall('GET','/v1/documents/'+id,null,token);
+        console.log('Title: '+r.title+'\n---\n'+extractText(r.body));
+      } else if (cmd === 'create') {
+        const ti=args.indexOf('--title'),ci=args.indexOf('--content');
+        if(ti<0){console.error('Usage: docs.js create --title "..." [--content "..."]');process.exit(1);}
+        const r=await apicall('POST','/v1/documents',{title:args[ti+1]},token);
+        if(!r.documentId){console.log(JSON.stringify(r));return;}
+        console.log('Created! ID:'+r.documentId+' | Title:'+r.title);
+        console.log('URL: https://docs.google.com/document/d/'+r.documentId+'/edit');
+        if(ci>=0){
+          await apicall('POST','/v1/documents/'+r.documentId+':batchUpdate',{requests:[{insertText:{location:{index:1},text:args[ci+1]}}]},token);
+          console.log('Content added.');
+        }
+      } else { console.error('Commands: read, create'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[docs] '+e.message);process.exit(1);});
+
+  slides.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'slides.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'create') {
+        const ti=args.indexOf('--title'); if(ti<0){console.error('Usage: slides.js create --title "..."');process.exit(1);}
+        const r=await apicall('POST','/v1/presentations',{title:args[ti+1]},token);
+        if(!r.presentationId){console.log(JSON.stringify(r));return;}
+        console.log('Created! ID:'+r.presentationId+' | Title:'+r.title);
+        console.log('URL: https://docs.google.com/presentation/d/'+r.presentationId+'/edit');
+      } else if (cmd === 'read') {
+        const id=args[1]; if(!id){console.error('Usage: slides.js read <presentationId>');process.exit(1);}
+        const r=await apicall('GET','/v1/presentations/'+id,null,token);
+        console.log('Title: '+r.title+' | Slides: '+(r.slides||[]).length);
+        (r.slides||[]).forEach((s,i)=>{
+          const texts=[];
+          (s.pageElements||[]).forEach(el=>{
+            if(el.shape&&el.shape.text) el.shape.text.textElements.forEach(te=>{ if(te.textRun) texts.push(te.textRun.content.trim()); });
+          });
+          if(texts.length) console.log('Slide '+(i+1)+': '+texts.join(' | ').slice(0,120));
+        });
+      } else if (cmd === 'addslide') {
+        const id=args[1],ti=args.indexOf('--text'); if(!id){console.error('Usage: slides.js addslide <presentationId> [--text "content"]');process.exit(1);}
+        const pres=await apicall('GET','/v1/presentations/'+id,null,token);
+        const slideId='slide_'+Date.now();
+        const requests=[{createSlide:{objectId:slideId,slideLayoutReference:{predefinedLayout:'BLANK'}}}];
+        if(ti>=0){
+          const boxId='box_'+Date.now();
+          requests.push({createShape:{objectId:boxId,shapeType:'TEXT_BOX',elementProperties:{pageObjectId:slideId,size:{width:{magnitude:6000000,unit:'EMU'},height:{magnitude:3000000,unit:'EMU'}},transform:{scaleX:1,scaleY:1,translateX:1800000,translateY:1272000,unit:'EMU'}}}});
+          requests.push({insertText:{objectId:boxId,text:args[ti+1]}});
+        }
+        const r=await apicall('POST','/v1/presentations/'+id+':batchUpdate',{requests},token);
+        console.log('Slide added to presentation '+id);
+      } else { console.error('Commands: create --title "x", read <id>, addslide <id> [--text "content"]'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[slides] '+e.message);process.exit(1);});
+
+  tasks.js: |
+    'use strict';
+    const https = require('https');
+    const {execSync} = require('child_process');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    function getToken() { return execSync('node /home/node/.openclaw/workspace/google-token.js', {env:process.env}).toString().trim(); }
+    function apicall(method, path, body, token) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'tasks.googleapis.com',path,method,
+          headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    async function main() {
+      const token = getToken();
+      if (cmd === 'lists') {
+        const r=await apicall('GET','/tasks/v1/users/@me/lists?maxResults=20',null,token);
+        if(r.error){console.error('[tasks] '+r.error.message+'\nNote: Make sure your OAuth token includes the tasks scope (https://www.googleapis.com/auth/tasks).');process.exit(1);}
+        (r.items||[]).forEach(l=>console.log('ID:'+l.id+' | '+l.title));
+      } else if (cmd === 'list') {
+        const li=args.indexOf('--list'); const listId=li>=0?args[li+1]:'@default';
+        const r=await apicall('GET','/tasks/v1/lists/'+encodeURIComponent(listId)+'/tasks?showCompleted=false&maxResults=50',null,token);
+        if(r.error){console.error('[tasks] '+r.error.message);process.exit(1);}
+        if(!r.items||!r.items.length){console.log('No pending tasks.');return;}
+        r.items.forEach(t=>{
+          const due=t.due?' [due: '+t.due.slice(0,10)+']':'';
+          console.log('ID:'+t.id+due+' '+t.title+(t.notes?' — '+t.notes.slice(0,60):''));
+        });
+      } else if (cmd === 'add') {
+        const ti=args.indexOf('--title'),di=args.indexOf('--due'),li=args.indexOf('--list'),ni=args.indexOf('--notes');
+        if(ti<0){console.error('Usage: tasks.js add --title "Task" [--due 2026-05-30] [--notes "x"] [--list <listId>]');process.exit(1);}
+        const listId=li>=0?args[li+1]:'@default';
+        const body={title:args[ti+1]};
+        if(di>=0) body.due=new Date(args[di+1]).toISOString();
+        if(ni>=0) body.notes=args[ni+1];
+        const r=await apicall('POST','/tasks/v1/lists/'+encodeURIComponent(listId)+'/tasks',body,token);
+        if(r.id) console.log('Task created: '+r.id+' — '+r.title); else console.log(JSON.stringify(r));
+      } else if (cmd === 'done') {
+        const id=args[1],li=args.indexOf('--list'); const listId=li>=0?args[li+1]:'@default';
+        if(!id){console.error('Usage: tasks.js done <taskId> [--list <listId>]');process.exit(1);}
+        const r=await apicall('PATCH','/tasks/v1/lists/'+encodeURIComponent(listId)+'/tasks/'+encodeURIComponent(id),{status:'completed'},token);
+        if(r.id) console.log('Completed: '+r.title); else console.log(JSON.stringify(r));
+      } else if (cmd === 'delete') {
+        const id=args[1],li=args.indexOf('--list'); const listId=li>=0?args[li+1]:'@default';
+        if(!id){console.error('Usage: tasks.js delete <taskId> [--list <listId>]');process.exit(1);}
+        await apicall('DELETE','/tasks/v1/lists/'+encodeURIComponent(listId)+'/tasks/'+encodeURIComponent(id),null,token);
+        console.log('Deleted task: '+id);
+      } else { console.error('Commands: lists, list [--list <id>], add --title "x" [--due date], done <id>, delete <id>'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[tasks] '+e.message);process.exit(1);});
+
+  translate.js: |
+    'use strict';
+    const https = require('https');
+    const args = process.argv.slice(2);
+    const cmd = args[0];
+    const API_KEY = process.env.GOOGLE_TRANSLATE_KEY;
+    function apicall(method, path, body) {
+      return new Promise((resolve,reject) => {
+        const data = body ? JSON.stringify(body) : null;
+        const opts = {hostname:'translation.googleapis.com',path:''+path+'&key='+API_KEY,method,
+          headers:{'Content-Type':'application/json',...(data?{'Content-Length':Buffer.byteLength(data)}:{})}};
+        const req = https.request(opts, res => {
+          let b=''; res.on('data',c=>b+=c);
+          res.on('end',()=>{ try{resolve(JSON.parse(b))}catch(e){resolve({raw:b})} });
+        });
+        req.on('error',reject); if(data)req.write(data); req.end();
+      });
+    }
+    async function main() {
+      if (!API_KEY) { console.error('GOOGLE_TRANSLATE_KEY not set.\nAdd it in deployment settings: enable "Cloud Translation API" at console.cloud.google.com and create an API key.'); process.exit(1); }
+      if (cmd === 'translate') {
+        const ti=args.indexOf('--text'),toi=args.indexOf('--to'),fri=args.indexOf('--from');
+        if(ti<0||toi<0){console.error('Usage: translate.js translate --text "Hello" --to es [--from en]');process.exit(1);}
+        const body={q:args[ti+1],target:args[toi+1],...(fri>=0?{source:args[fri+1]}:{})};
+        const r=await apicall('POST','/language/translate/v2?',body);
+        const t=r.data&&r.data.translations&&r.data.translations[0];
+        if(t) console.log('Translated ('+t.detectedSourceLanguage||args[fri+1]||'?'+' → '+args[toi+1]+'): '+t.translatedText);
+        else console.log(JSON.stringify(r));
+      } else if (cmd === 'detect') {
+        const ti=args.indexOf('--text'); if(ti<0){console.error('Usage: translate.js detect --text "Bonjour"');process.exit(1);}
+        const r=await apicall('POST','/language/translate/v2/detect?',{q:args[ti+1]});
+        const d=r.data&&r.data.detections&&r.data.detections[0]&&r.data.detections[0][0];
+        if(d) console.log('Detected language: '+d.language+' (confidence: '+Math.round(d.confidence*100)+'%)');
+        else console.log(JSON.stringify(r));
+      } else if (cmd === 'languages') {
+        const r=await apicall('GET','/language/translate/v2/languages?target=en',null);
+        (r.data&&r.data.languages||[]).forEach(l=>console.log(l.language+' | '+l.name));
+      } else { console.error('Commands: translate --text "x" --to <lang>, detect --text "x", languages'); process.exit(1); }
+    }
+    main().catch(e=>{console.error('[translate] '+e.message);process.exit(1);});

@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 1.0.0
+description: AI Personal Assistant — Manage Gmail, Calendar, Drive, Sheets, and Docs
+  via natural language chat
+name: ai-personal-assistant
+type: application
+version: 1.0.0

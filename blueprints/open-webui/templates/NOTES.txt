@@ -1,0 +1,37 @@
+Open WebUI + Ollama {{ .Chart.AppVersion }} deployed.
+
+⏳ First boot: 3-5 minutes (downloading {{ .Values.model }} — ~2-5 GB depending on model)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Get Open WebUI URL:
+
+  NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+  NODE_PORT=$(kubectl get svc {{ .Release.Name }}-open-webui -o jsonpath='{.spec.ports[0].nodePort}')
+  echo "Open WebUI: http://$NODE_IP:$NODE_PORT"
+
+First login: Sign up with {{ .Values.webui.adminEmail }} — this account becomes admin automatically.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Change model:
+
+  helm upgrade {{ .Release.Name }} ./open-webui-chart \
+    --reuse-values \
+    --set model=mistral:7b
+
+Available models: llama3.2:3b, llama3.1:8b, mistral:7b, gemma:2b, phi3:3.8b
+Storage required: 2GB (3b) → 5GB (8b) → 40GB (70b)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Troubleshooting:
+
+  Model pull not started?
+    kubectl logs job/{{ .Release.Name }}-model-pull -n {{ .Release.Namespace }}
+
+  Ollama not ready?
+    kubectl logs -l app.kubernetes.io/component=ollama -n {{ .Release.Namespace }}
+
+  WebUI can't connect to Ollama?
+    kubectl logs -l app.kubernetes.io/component=webui -n {{ .Release.Namespace }}

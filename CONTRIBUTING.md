@@ -70,11 +70,11 @@ blueprints/{name}/
 ├── values.example.yaml     ← example config for users — no real credentials
 ├── .helmignore             ← keeps docs out of the packaged TGZ
 ├── README.md               ← what it does, ports, quick-start
+├── charts/                 ← vendored dependencies (only if chart has dependencies)
+├── Chart.lock              ← pinned dependency versions (only if chart has dependencies)
 └── templates/              ← Kubernetes manifests
     └── ...
 ```
-
-`values.schema.json` is optional but recommended — it validates user input.
 
 **2.1 Chart.yaml**
 

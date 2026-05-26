@@ -8,11 +8,28 @@ Each entry covers a chart release or a repository-level change.
 ## [Unreleased]
 
 ### Added
+- `mattermost` 9.11.2 — Mattermost team messaging platform with bundled PostgreSQL
+- `open-webui` 1.0.0 — Open WebUI chat interface with bundled Ollama LLM runtime
+- `rag-kb` 1.0.0 — Kotaemon RAG Knowledge Base with multi-LLM support
+- `ai-analytics-agent` 1.0.0 — Claw Analytics Agent (OpenClaw + Umami + PostgreSQL)
+- `b2b-sdr-agent` 1.0.0 — Claw Sales Agent (OpenClaw + TwentyCRM + PostgreSQL + Redis)
+- `ai-personal-assistant` 1.0.0 — OpenClaw Personal Assistant with Gmail integration
+- `prometheus` 29.8.0 — Prometheus monitoring stack with Node Exporter
+- `valkey` 9.1.0 — Valkey in-memory data store (Redis-compatible)
+- `mysql` 9.4.0 — MySQL relational database
+- `nextcloud` 33.0.3 — Nextcloud self-hosted file sync and collaboration platform
 - `CLAUDE.md` — AI assistant instructions and repo conventions
 - `scripts/new-blueprint.sh` — scaffolding script to create a new blueprint skeleton
 - `.github/workflows/gitleaks.yml` — secret scanning on every push and PR
 - `DEVELOPER.md` — internal onboarding guide with AI assistant instructions
 - Template dry-run step added to CI (`lint-charts.yaml`) via `make validate`
+
+### Removed
+- `drupal` — removed from E2E Marketplace catalogue
+- `etcd` — removed from E2E Marketplace catalogue
+- `jenkins` — superseded by `jenkins-maven`; removed from E2E Marketplace catalogue
+- `phpmyadmin` — removed from E2E Marketplace catalogue
+- `redmine` — removed from E2E Marketplace catalogue
 
 ---
 
