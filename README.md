@@ -381,7 +381,8 @@ This triggers the CI workflow which:
 | | |
 |--|--|
 | [Contributing Guide](CONTRIBUTING.md) | Steps to add a new blueprint or improve an existing one |
-| [Reference Guide (Optional)](DEVELOPER.md) | Reference file  |
+| [Vendor Guide](VENDOR.md) | How to propose or contribute a new blueprint to the marketplace |
+| [Reference Guide (Optional)](DEVELOPER.md) | Reference file |
 | [Changelog](CHANGELOG.md) | History of blueprint additions and updates |
 
 ---

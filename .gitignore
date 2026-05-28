@@ -5,6 +5,9 @@
 # chart-releaser output
 .cr-index/
 
+# Claude Code local memory (not for public repo)
+.claude/
+
 # Editor and OS files
 .DS_Store
 .idea/
