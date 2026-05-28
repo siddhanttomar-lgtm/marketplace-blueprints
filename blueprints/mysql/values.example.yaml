@@ -1,0 +1,25 @@
+# MySQL — example values
+# helm install mysql blueprints/mysql -f my-values.yaml
+
+auth:
+  rootPassword: "YOUR-ROOT-PASSWORD"
+  database: mydb
+  username: myuser
+  password: "YOUR-USER-PASSWORD"
+
+primary:
+  service:
+    type: NodePort
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+# Single instance — set architecture: replication for HA
+architecture: standalone

@@ -1,0 +1,22 @@
+# Valkey — example values
+# helm install valkey blueprints/valkey -f my-values.yaml
+
+auth:
+  enabled: true
+  password: "YOUR-VALKEY-PASSWORD"
+
+primary:
+  service:
+    type: NodePort
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+# Single instance (no replication)
+replica:
+  replicaCount: 0

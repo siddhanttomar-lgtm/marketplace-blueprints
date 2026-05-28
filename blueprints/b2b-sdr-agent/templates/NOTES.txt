@@ -1,0 +1,83 @@
+B2B SDR Agent deployed!
+
+⏳ First boot takes 3-5 min: Postgres init → Twenty migrations → OpenClaw startup
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS YOUR SDR AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw Control UI (primary — marketplace URL):
+  → Accessible at the URL shown in your E2E Marketplace dashboard
+  → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
+
+Twenty CRM (secondary UI):
+  kubectl get svc {{ .Release.Name }}-twenty -n {{ .Release.Namespace }}
+  → Open http://<NodeIP>:<NodePort>
+  → Create your admin account on first visit
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — CONNECT YOUR MESSAGING CHANNEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In OpenClaw Control UI → Channels:
+  • Telegram: paste your @BotFather token
+  • WhatsApp: enter Business API credentials
+  • Slack: add your bot token
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — CONNECT YOUR AI MODEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In OpenClaw Control UI → Models:
+  • Claude: use ANTHROPIC_API_KEY already set (if provided)
+  • GPT-4: use OPENAI_API_KEY already set (if provided)
+  • Local: point to an Ollama endpoint on your network
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW THE SDR PIPELINE WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Lead messages your Telegram bot
+2. {{ .Values.openclaw.sdrName }} qualifies them with BANT questions
+3. At end of qualifying conversation, AI outputs:
+
+   LEAD_SUMMARY_START
+   { "name": "...", "score": "hot|warm|cold", "next_action": "..." }
+   LEAD_SUMMARY_END
+
+4. Copy this JSON into Twenty CRM → People → New Person
+   (v2 will auto-sync via MCP bridge)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TWENTY CRM QUICK START
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After creating your account in Twenty CRM:
+  1. Settings → API Keys → Generate key (save it — you'll need it for v2 MCP sync)
+  2. Create a Pipeline (Sales → Opportunities) for lead tracking
+  3. Add custom fields: bant_score, channel, budget_range
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT: UPDATE SERVER_URL FOR EMAIL LINKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if not .Values.twenty.serverUrl }}
+
+SERVER_URL is not set. Email notification links in Twenty CRM will use
+the internal service URL and won't be clickable from outside the cluster.
+
+To fix: get your Twenty CRM NodePort URL, then upgrade the chart:
+  helm upgrade {{ .Release.Name }} b2b-sdr-agent --set twenty.serverUrl=http://NODE_IP:NODE_PORT
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw not responding after 3 min:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
+
+Twenty not loading:
+  kubectl logs -l app.kubernetes.io/component=twenty -n {{ .Release.Namespace }}
+
+Postgres startup issues:
+  kubectl logs -l app.kubernetes.io/component=postgres -n {{ .Release.Namespace }}

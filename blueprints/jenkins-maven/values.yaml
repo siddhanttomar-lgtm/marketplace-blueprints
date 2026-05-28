@@ -1,0 +1,80 @@
+jenkins:
+  jenkinsUser: admin
+  jenkinsPassword: ""
+
+  persistence:
+    size: 10Gi
+
+  resources:
+    limits:
+      memory: 2Gi
+      cpu: "2"
+    requests:
+      memory: 1Gi
+      cpu: 200m
+
+  # Startup probe: disables liveness during slow JVM + plugin init on CPU-constrained clusters.
+  # Gives Jenkins up to ~9 min to become healthy before liveness kicks in.
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 25
+    successThreshold: 1
+
+  # Readiness probe: TCP check on port 8080.
+  # Jenkins opens the port within ~30s (well before the 120s platform timeout)
+  # even though the UI takes 3-5 min to fully load.
+  readinessProbe:
+    tcpSocket:
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 9
+    successThreshold: 1
+
+  # Use Bitnami's built-in initScripts to register Maven env vars via Groovy.
+  # This creates a ConfigMap and mounts it at init.groovy.d — no manual volume hacks.
+  initScripts:
+    maven-env.groovy: |
+      import hudson.slaves.EnvironmentVariablesNodeProperty
+      import jenkins.model.Jenkins
+      def instance = Jenkins.instance
+      def gProps   = instance.globalNodeProperties
+      def existing = gProps.getAll(EnvironmentVariablesNodeProperty.class)
+      def prop     = existing ? existing[0] : new EnvironmentVariablesNodeProperty()
+      prop.getEnvVars().put("PATH+MAVEN", "/opt/maven/bin")
+      prop.getEnvVars().put("MAVEN_HOME", "/opt/maven")
+      if (!existing) { gProps.add(prop) }
+      instance.save()
+
+  # Init container: copies Maven binary from Alpine image (~150MB vs 627MB for full JDK21).
+  # Faster image pull = more time budget for Jenkins JVM startup.
+  initContainers:
+    - name: install-maven
+      image: maven:3.9-eclipse-temurin-17-alpine
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          cp -rp /usr/share/maven/. /opt/maven/
+          chmod +x /opt/maven/bin/mvn
+      volumeMounts:
+        - name: maven-volume
+          mountPath: /opt/maven
+
+  extraVolumes:
+    - name: maven-volume
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: maven-volume
+      mountPath: /opt/maven
+
+  extraEnvVars:
+    - name: MAVEN_HOME
+      value: /opt/maven

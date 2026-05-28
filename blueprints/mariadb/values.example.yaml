@@ -1,0 +1,17 @@
+# MariaDB — example values
+# helm install mariadb blueprints/mariadb -f my-values.yaml
+
+auth:
+  rootPassword: "YOUR-STRONG-ROOT-PASSWORD"
+  database: "mydb"         # optional
+
+primary:
+  service:
+    type: NodePort
+  persistence:
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi

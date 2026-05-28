@@ -1,0 +1,23 @@
+# n8n — example values
+# helm install n8n blueprints/n8n -f my-values.yaml
+
+service:
+  type: NodePort
+  port: 80
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+env:
+  N8N_ENCRYPTION_KEY: "YOUR-RANDOM-32-CHAR-STRING-HERE"
+  # Enable basic auth to protect the UI
+  # N8N_BASIC_AUTH_ACTIVE: "true"
+  # N8N_BASIC_AUTH_USER: "admin"
+  # N8N_BASIC_AUTH_PASSWORD: "YOUR-PASSWORD"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi

@@ -1,0 +1,9 @@
+Jenkins + Maven is deploying. Allow up to 5 minutes for the JVM and plugins to initialize.
+
+Get the NodePort:
+  kubectl get svc {{ .Release.Name }}-jenkins -o jsonpath='{.spec.ports[0].nodePort}'
+
+Retrieve the admin password:
+  kubectl get secret {{ .Release.Name }}-jenkins -o jsonpath='{.data.jenkins-password}' | base64 -d
+
+Open http://<node-ip>:<nodeport> in your browser.

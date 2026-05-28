@@ -1,0 +1,96 @@
+AI Personal Assistant {{ .Chart.AppVersion }} deployed.
+
+⏳ First boot: 30-60 seconds
+   - OpenClaw initialization (~20s)
+   - Google credentials loaded from Secret
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS YOUR PERSONAL ASSISTANT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw Control UI (primary — marketplace URL):
+  → Accessible at the URL shown in your E2E Marketplace dashboard
+  → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — CONNECT GOOGLE WORKSPACE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You need a Google OAuth2 refresh token. One-time setup:
+
+1. Go to https://console.cloud.google.com → Create/select project
+2. APIs & Services → Enable these APIs:
+   Gmail API, Google Calendar API, Google Drive API,
+   Google Sheets API, Google Docs API
+3. OAuth consent screen → External → Add your email as test user
+4. Credentials → Create OAuth 2.0 Client ID (Desktop app)
+5. Copy Client ID and Client Secret
+6. Get refresh token at https://developers.google.com/oauthplayground:
+   - Click gear → check "Use your own OAuth credentials" → paste Client ID+Secret
+   - Select scopes: Gmail, Calendar, Drive, Sheets, Docs (all read+write)
+   - Authorize → Exchange authorization code for tokens
+   - Copy the "Refresh token"
+7. Set in blueprint variables:
+   - Google Client ID, Google Client Secret, Google Refresh Token
+   - Gmail Address (your Gmail address)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — ADD YOUR AI API KEY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add at least one AI provider key in blueprint variables:
+  • Anthropic API Key (recommended — best quality)
+  • OpenAI API Key
+  • Google API Key (Gemini)
+  • Groq API Key (free tier available)
+  • Fireworks API Key
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — START CHATTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Open the Control UI and chat naturally:
+
+  Email:
+  • "Do I have any unread emails?"
+  • "Show emails from boss@company.com"
+  • "Send an email to alice@co.com saying the report is ready"
+
+  Calendar:
+  • "What's on my calendar this week?"
+  • "Schedule a 30-min call with Bob tomorrow at 2pm"
+
+  Drive:
+  • "Find the Q2 report in my Drive"
+  • "Search for files about marketing"
+
+  Sheets:
+  • "Show me the first 10 rows of my expenses sheet [spreadsheetId]"
+  • "Add a new row: Lunch, $25, May 24"
+
+  Docs:
+  • "Read my project proposal document [documentId]"
+  • "Create a new doc called Meeting Notes"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONNECT TELEGRAM (optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chat with your assistant from Telegram:
+  1. Open Telegram → search @BotFather → /newbot
+  2. Copy the bot token (e.g. 7123456789:AAFxxx...)
+  3. Set in blueprint variable: Telegram Bot Token
+  4. Redeploy or set TELEGRAM_BOT_TOKEN env on running pod
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw not responding after 3 min:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
+
+Google auth errors — "invalid_grant":
+  Your refresh token may have expired. Re-run OAuth Playground to get a new one.
+
+Google scripts not found:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c init-config -n {{ .Release.Namespace }}

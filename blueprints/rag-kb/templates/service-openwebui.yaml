@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rag-kb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openwebui
+spec:
+  type: NodePort
+  selector:
+    {{- include "rag-kb.selectorLabels" (dict "release" .Release.Name "component" "openwebui") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

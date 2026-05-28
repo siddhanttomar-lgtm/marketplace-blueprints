@@ -1,0 +1,16 @@
+# Memcached — example values
+# helm install memcached blueprints/memcached -f my-values.yaml
+
+service:
+  type: NodePort
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# auth:
+#   enabled: true
+#   password: "YOUR-SASL-PASSWORD"
