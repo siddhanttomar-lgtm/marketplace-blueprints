@@ -1,0 +1,27 @@
+# Claw Sales Agent (B2B SDR) — example values
+# helm install b2b-sdr-agent blueprints/b2b-sdr-agent -f my-values.yaml
+
+openclaw:
+  # REQUIRED: set a strong random gateway token
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  # Provide at least one AI API key
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  groqApiKey: ""
+  # SDR persona shown in outbound messages
+  sdrName: "Alex"
+  companyName: "Acme Inc."
+  # Optional: Gmail App Password for sending outbound emails
+  gmailUser: ""
+  gmailAppPassword: ""
+
+twenty:
+  # REQUIRED: 64-char hex string — generate: openssl rand -hex 32
+  appSecret: "YOUR-64-CHAR-HEX-SECRET"
+  # Set to your external URL after deploy for correct email/webhook links
+  serverUrl: "http://your-node-ip:NODE_PORT"
+
+postgres:
+  password: "YOUR-DB-PASSWORD"
+  storage:
+    size: 10Gi

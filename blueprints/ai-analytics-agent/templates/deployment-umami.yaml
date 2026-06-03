@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-umami
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: umami
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami") | nindent 8 }}
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.37
+          command: ['sh', '-c', 'until nc -z {{ include "aaa.postgresqlHost" . }} 5432; do echo "[wait-for-postgres] waiting..."; sleep 3; done; echo "[wait-for-postgres] ready"']
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      containers:
+        - name: umami
+          image: "{{ .Values.umami.image.repository }}:{{ .Values.umami.image.tag }}"
+          imagePullPolicy: {{ .Values.umami.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgresql.auth.username }}:{{ .Values.postgresql.auth.password }}@{{ include "aaa.postgresqlHost" . }}:5432/{{ .Values.postgresql.auth.database }}"
+            - name: APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: UMAMI_APP_SECRET
+            - name: DISABLE_TELEMETRY
+              value: "1"
+            - name: DISABLE_UPDATES
+              value: "1"
+          startupProbe:
+            httpGet:
+              path: /api/heartbeat
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /api/heartbeat
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/heartbeat
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.umami.resources | nindent 12 }}

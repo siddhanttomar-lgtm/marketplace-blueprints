@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ollama
+  labels:
+    {{- include "open-webui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "open-webui.ollamaSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "open-webui.ollamaSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: ollama
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+          ports:
+            - name: ollama
+              containerPort: 11434
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: {{ .Values.ollama.resources.requests.cpu }}
+              memory: {{ .Values.ollama.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.ollama.resources.limits.cpu }}
+              memory: {{ .Values.ollama.resources.limits.memory }}
+              {{- if .Values.ollama.gpu.enabled }}
+              nvidia.com/gpu: "1"
+              {{- end }}
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-ollama-models

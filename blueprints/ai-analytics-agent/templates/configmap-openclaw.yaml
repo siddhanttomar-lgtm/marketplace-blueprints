@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-openclaw-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+data:
+  # Base openclaw.json — init-config injects channels.telegram (if botToken set),
+  # baseUrl (if openaiApiBase/fireworksApiKey set), and sets the active model at deploy time.
+  openclaw.json: |
+    {
+      "gateway": {
+        "mode": "local",
+        "bind": "lan",
+        "port": 18789,
+        "auth": {
+          "mode": "token"
+        },
+        "controlUi": {
+          "enabled": true,
+          "allowedOrigins": ["*"],
+          "dangerouslyDisableDeviceAuth": true
+        }
+      },
+      "models": {
+        "providers": {
+          "anthropic": {
+            "models": [
+              { "id": "claude-opus-4-7",           "name": "Claude Opus 4.7" },
+              { "id": "claude-sonnet-4-6",          "name": "Claude Sonnet 4.6" },
+              { "id": "claude-sonnet-4-5",          "name": "Claude Sonnet 4.5" },
+              { "id": "claude-haiku-4-5-20251001",  "name": "Claude Haiku 4.5" }
+            ]
+          },
+          "openai": {
+            "models": [
+              { "id": "gpt-4o",       "name": "GPT-4o" },
+              { "id": "gpt-4o-mini",  "name": "GPT-4o Mini" },
+              { "id": "gpt-4-turbo",  "name": "GPT-4 Turbo" },
+              { "id": "o1",           "name": "o1" },
+              { "id": "o3-mini",      "name": "o3 Mini" }
+            ]
+          },
+          "google": {
+            "models": [
+              { "id": "gemini-2.0-flash",      "name": "Gemini 2.0 Flash" },
+              { "id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash Lite" },
+              { "id": "gemini-1.5-pro",        "name": "Gemini 1.5 Pro" },
+              { "id": "gemini-1.5-flash",      "name": "Gemini 1.5 Flash" }
+            ]
+          },
+          "groq": {
+            "models": [
+              { "id": "qwen-qwq-32b",  "name": "Qwen QwQ 32B" },
+              { "id": "gemma2-9b-it",  "name": "Gemma 2 9B" }
+            ]
+          }
+        }
+      },
+      "agents": {
+        "defaults": {
+          "workspace": "~/.openclaw/workspace"
+        },
+        "list": [
+          {
+            "id": "analytics",
+            "name": "Analytics Agent",
+            "workspace": "~/.openclaw/workspace"
+          }
+        ]
+      },
+      "mcp": {
+        "servers": {
+          "umami": {
+            "type": "remote",
+            "url": "http://{{ include "aaa.umamiMcpHost" . }}:3334/mcp",
+            "headers": {
+              "X-Umami-Url": "http://{{ include "aaa.umamiHost" . }}:3000",
+              "X-Umami-Username": "admin",
+              "X-Umami-Password": "__UMAMI_ADMIN_PASSWORD__"
+            }
+          }
+        }
+      },
+      "cron": { "enabled": true }
+    }
+
+  SKILL.md: |
+    # AI Web Analytics Agent
+
+    You are an AI analytics assistant that helps users understand their website traffic through natural language. You have access to Umami analytics data via MCP tools.
+
+    ## Available MCP Tools
+
+    - `list_websites` — List all tracked websites with their IDs
+    - `get_stats` — Overall stats: visitors, pageviews, bounce rate, session duration
+    - `get_pageviews` — Time-series pageview data (hourly, daily, weekly)
+    - `get_metrics` — Breakdowns by dimension: path, referrer, country, browser, device, os
+    - `get_active_visitors` — Real-time active user count (last 5 minutes)
+
+    ## Query → Tool Mapping
+
+    "visitors today" → get_stats, today's date range
+    "how many people visited yesterday" → get_stats, yesterday's range
+    "live users right now" → get_active_visitors
+    "top pages this week" → get_metrics type=path, last 7 days
+    "which landing page is best" → get_metrics type=path, sort by visitors
+    "where is traffic coming from" → get_metrics type=referrer
+    "which countries visit most" → get_metrics type=country
+    "what browsers do visitors use" → get_metrics type=browser
+    "mobile vs desktop" → get_metrics type=device
+    "traffic trend this month" → get_pageviews unit=day, last 30 days
+    "compare this month to last month" → two get_pageviews calls, calculate % change
+
+    ## Date Ranges
+
+    - "today" = start of current day to now
+    - "yesterday" = previous full day
+    - "this week" = last 7 days
+    - "this month" = last 30 days
+
+    Always call list_websites first if you don't know the website ID yet.
+
+    ## Response Format
+
+    ALWAYS format results as clean readable text. NEVER return raw JSON.
+
+    Good: "Your site had 1,247 visitors this week — up 15% from last week. Top pages: /pricing (320 views), /blog (189 views). Most traffic from Google (67%)."
+    Bad: {"pageviews": 1247, "change": 0.15}
+
+    ## Proactive Insights
+
+    - Bounce rate >70%: suggest improving page speed or content relevance
+    - Mobile >60%: remind to check mobile responsiveness
+    - Traffic drop >20%: flag it and ask if there were recent changes
+
+    ## Scheduled Email Reports
+
+    Users can ask for scheduled email summaries: "send me weekly traffic reports every Monday at 9am".
+    Use OpenClaw cron to schedule these AND send via email if Gmail is configured.
+
+    To send an email report:
+    Command: `node /home/node/.openclaw/workspace/send-email.js "<to>" "<subject>" "<body>"`
+
+    Example:
+    ```
+    node /home/node/.openclaw/workspace/send-email.js "user@company.com" "Weekly Traffic Report — 19 May" "Hi,\n\nHere is your weekly summary:\n\n- Visitors: 1,247 (↑15%)\n- Top page: /pricing (320 views)\n- Top source: Google (67%)\n\nBest,\nAnalytics Agent"
+    ```
+
+    Rules:
+    - Only send emails when the user explicitly asks for email reports or provides their email address.
+    - Always confirm before sending: "Want me to email this report to you?"
+    - For scheduled reports, use cron + send-email together.
+    - If Gmail is not configured (GMAIL_USER not set), tell the user email is not set up and they need to add Gmail credentials in deployment settings.

@@ -1,0 +1,25 @@
+# OpenClaw Personal Assistant — example values
+# helm install ai-personal-assistant blueprints/ai-personal-assistant -f my-values.yaml
+
+openclaw:
+  # REQUIRED: set a strong random gateway token
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  # Provide at least one AI API key
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  groqApiKey: ""
+  # Google OAuth credentials for Gmail / Calendar / Drive integration
+  # See: https://developers.google.com/oauthplayground
+  googleClientId: ""
+  googleClientSecret: ""
+  googleRefreshToken: ""
+  gmailAddress: "you@gmail.com"
+  gmailSendName: "Assistant"
+  # Optional: Google Translate API key (console.cloud.google.com)
+  googleTranslateKey: ""
+  storage:
+    size: "5Gi"
+
+telegram:
+  # Optional: Telegram bot token from @BotFather
+  botToken: ""

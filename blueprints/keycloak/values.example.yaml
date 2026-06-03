@@ -1,0 +1,24 @@
+# Keycloak — example configuration
+# Copy this file, fill in required values, and pass to helm install:
+#   helm install keycloak blueprints/keycloak -f my-values.yaml
+
+# ── Required ──────────────────────────────────────────────────────────────────
+
+auth:
+  adminUser: admin
+  adminPassword: "YOUR-STRONG-PASSWORD-HERE"
+
+# ── Networking ────────────────────────────────────────────────────────────────
+
+service:
+  type: NodePort    # set NodePort for external access
+
+# ── Database (bundled PostgreSQL) ─────────────────────────────────────────────
+
+postgresql:
+  auth:
+    password: "YOUR-DB-PASSWORD-HERE"    # auto-generated if left empty
+  primary:
+    persistence:
+      size: 8Gi
+      storageClass: ""    # leave empty for cluster default

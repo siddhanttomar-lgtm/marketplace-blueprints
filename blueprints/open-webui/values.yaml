@@ -1,0 +1,42 @@
+replicaCount: 1
+
+model: "qwen2.5:0.5b"
+
+ollama:
+  image:
+    repository: ollama/ollama
+    tag: "0.6.5"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 20Gi
+    storageClass: ""
+  gpu:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+webui:
+  image:
+    repository: ghcr.io/open-webui/open-webui
+    tag: "v0.9.5"
+    pullPolicy: IfNotPresent
+  adminEmail: ""
+  adminPassword: ""
+  storage:
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+persistence:
+  accessMode: ReadWriteOnce

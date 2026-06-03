@@ -1,0 +1,95 @@
+openclaw:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "slim"
+    pullPolicy: IfNotPresent
+  storage:
+    size: "5Gi"
+  # REQUIRED: Gateway auth token — change before production
+  gatewayToken: ""
+  # At least one AI API key required (Anthropic or OpenAI recommended)
+  anthropicApiKey: ""
+  openaiApiKey: ""
+  googleApiKey: ""
+  groqApiKey: ""
+  # Fireworks AI key (OpenAI-compatible endpoint — useful for testing without a native key)
+  # Get one at fireworks.ai — set this if you don't have an Anthropic/OpenAI key yet
+  fireworksApiKey: ""
+  # Optional: Gmail credentials for scheduled email reports
+  # Use a Gmail App Password (myaccount.google.com/apppasswords) — NOT your regular password
+  gmailUser: ""
+  gmailAppPassword: ""
+  # Optional: custom OpenAI-compatible endpoint (Fireworks, Together AI, etc.)
+  # e.g. "https://api.fireworks.ai/inference/v1"
+  openaiApiBase: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+telegram:
+  # Optional — if set, enables a Telegram bot that bridges to the analytics agent.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  botToken: ""
+
+umami:
+  image:
+    repository: ghcr.io/umami-software/umami
+    tag: "3.1.0"
+    pullPolicy: IfNotPresent
+  adminPassword: ""
+  appSecret: ""
+  websiteName: ""
+  websiteDomain: ""
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
+
+umamiMcp:
+  image:
+    repository: ghcr.io/mittwald/umami-mcp
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "128Mi"
+
+postgresql:
+  enabled: true
+  auth:
+    database: "umami"
+    username: "umami"
+    password: ""
+    postgresPassword: ""
+  architecture: standalone
+  primary:
+    initdb:
+      scripts:
+        00_create_extensions.sql: |
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    persistence:
+      enabled: true
+      size: "8Gi"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "512Mi"
+
+persistence:
+  accessMode: ReadWriteOnce
+
+nodeSelector: {}
