@@ -1,5 +1,6 @@
 # Redis
 
+
 E2E's Kubernetes-native deployment of [Redis](https://redis.io) — the open-source, in-memory data store used as a database, cache, and message broker. This chart deploys a standalone Redis instance with authentication and persistent storage using the official Docker Hub image.
 
 ## Architecture
