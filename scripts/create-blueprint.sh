@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# new-blueprint.sh — scaffold a new blueprint folder skeleton
+# create-blueprint.sh — scaffold a new blueprint folder skeleton
 #
 # Usage:
-#   bash scripts/new-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
+#   bash scripts/create-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
 #
 # Example:
-#   bash scripts/new-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+#   bash scripts/create-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
 
 set -e
 
@@ -17,10 +17,10 @@ APP_VERSION="$4"
 # ── Validate inputs ────────────────────────────────────────────────────────────
 if [ -z "$NAME" ] || [ -z "$DISPLAY_NAME" ] || [ -z "$DESCRIPTION" ] || [ -z "$APP_VERSION" ]; then
   echo ""
-  echo "  Usage: bash scripts/new-blueprint.sh <name> \"<Display Name>\" \"<description>\" \"<appVersion>\""
+  echo "  Usage: bash scripts/create-blueprint.sh <name> \"<Display Name>\" \"<description>\" \"<appVersion>\""
   echo ""
   echo "  Example:"
-  echo "    bash scripts/new-blueprint.sh mysql \"MySQL\" \"MySQL relational database\" \"8.4.0\""
+  echo "    bash scripts/create-blueprint.sh mysql \"MySQL\" \"MySQL relational database\" \"8.4.0\""
   echo ""
   exit 1
 fi
