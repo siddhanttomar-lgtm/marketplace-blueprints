@@ -38,7 +38,7 @@ jobs:
           scandir: "./scripts"
 
       - name: Run actionlint
-        uses: rhysd/actionlint@v1
+        uses: rhysd/actionlint@v1.7.12
 
       - name: Run yamllint
         uses: ibiqlik/action-yamllint@v3
