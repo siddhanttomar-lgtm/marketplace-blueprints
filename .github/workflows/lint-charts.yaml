@@ -6,7 +6,7 @@ on:
       - 'blueprints/**'
       - 'scripts/validate.sh'
       - 'Makefile'
-      - '.cr.yaml'
+      - '.charts-releaser.yaml'
       - '.github/workflows/lint-charts.yaml'
       - '.github/workflows/release.yaml'
 
