@@ -29,6 +29,6 @@ jobs:
         uses: helm/chart-releaser-action@v1.6.0
         with:
           charts_dir: blueprints
-          config: .cr.yaml
+          config: .charts-releaser.yaml
         env:
           CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
