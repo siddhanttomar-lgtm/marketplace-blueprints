@@ -6,7 +6,6 @@ useDefault = true
 [allowlist]
 description = "Ignore placeholder values and vendored upstream charts"
 paths = [
-  '''values\.example\.yaml$''',
   '''blueprints/[^/]+/charts/''',
 ]
 regexes = [

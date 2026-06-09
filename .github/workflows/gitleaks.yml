@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Scan source tree for secrets
+      - name: Scan git history for secrets
         uses: docker://zricethezav/gitleaks:v8.30.1
         with:
-          args: dir --config .gitleaks.toml --redact .
+          args: git --config .gitleaks.toml --redact .

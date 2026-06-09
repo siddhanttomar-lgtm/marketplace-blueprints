@@ -32,6 +32,7 @@ Run these before opening a PR:
 shellcheck scripts/*.sh
 actionlint
 yamllint .github/workflows
+make test
 make lint
 make validate
 ```

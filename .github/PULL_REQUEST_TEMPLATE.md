@@ -8,7 +8,8 @@
 
 ## Checklist
 
-- [ ] `bash scripts/validate.sh` passes locally
+- [ ] `make test` passes locally
+- [ ] `make validate` passes locally
 - [ ] `Chart.yaml` `appVersion` matches the actual upstream software version
 - [ ] `values.example.yaml` has no real credentials, API keys, or IPs
 - [ ] `blueprints/{name}/README.md` is up to date
