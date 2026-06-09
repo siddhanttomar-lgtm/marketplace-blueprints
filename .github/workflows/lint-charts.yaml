@@ -1,0 +1,31 @@
+name: Lint Charts
+
+on:
+  pull_request:
+    paths:
+      - 'blueprints/**'
+      - 'scripts/validate.sh'
+      - 'Makefile'
+      - '.charts-releaser.yaml'
+      - '.github/workflows/lint-charts.yaml'
+      - '.github/workflows/release.yaml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v4.2.0'
+
+      - name: Run blueprint tool regression tests
+        run: make test
+
+      - name: Lint all charts
+        run: make lint
+
+      - name: Template dry-run all charts
+        run: make validate
