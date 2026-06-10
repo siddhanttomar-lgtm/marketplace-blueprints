@@ -2,79 +2,96 @@
 
 E2E's Kubernetes deployment of the B2B SDR Agent — an AI-powered sales development representative built on [OpenClaw](https://github.com/openclaw/openclaw) and [Twenty CRM](https://twenty.com). Automate lead qualification, outreach, and CRM pipeline management.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Telegram/Web → OpenClaw AI Gateway → LLM (Anthropic/OpenAI/Groq)
-                                    └→ Twenty CRM → PostgreSQL
-                                    └→ Redis (queue)
-```
+The E2E Marketplace provisions the SDR agent and CRM and shows access URLs in the dashboard.
 
-## Prerequisites
+| Service | Port | Description |
+|---------|------|-------------|
+| OpenClaw SDR Interface | 80 | AI chat for SDR conversations and lead management |
+| Twenty CRM | 3000 | CRM dashboard for managing contacts, companies, and pipeline |
 
-- Kubernetes cluster (2 vCPU, 2 GB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
-- At least one LLM API key (Anthropic, OpenAI, or Groq)
+Open the SDR interface at `http://<deployment-url>` to start qualifying leads and managing outreach. Open the CRM at `http://<deployment-url>:3000` to view your pipeline.
 
-## Quick Start
+## Before You Deploy — Getting Your Credentials
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+### LLM API Key (required — choose one)
 
-helm install b2b-sdr-agent blueprints/b2b-sdr-agent \
-  --set openclaw.gatewayToken=YOUR-GATEWAY-TOKEN \
-  --set openclaw.anthropicApiKey=YOUR-ANTHROPIC-KEY \
-  --set twenty.appSecret=$(openssl rand -hex 32) \
-  --set postgres.password=YOUR-DB-PASSWORD
-```
+**Anthropic API Key** (recommended):
+1. Go to [console.anthropic.com](https://console.anthropic.com)
+2. Sign up or log in → **Settings → API Keys → Create Key**
+3. Copy the key (starts with `sk-ant-`)
 
-Using a values file:
+**OpenAI API Key:**
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Sign in → **Create new secret key**, copy the key
 
-```bash
-cp blueprints/b2b-sdr-agent/values.example.yaml my-values.yaml
-helm install b2b-sdr-agent blueprints/b2b-sdr-agent -f my-values.yaml
-```
+**Groq API Key:**
+1. Go to [console.groq.com/keys](https://console.groq.com/keys)
+2. Sign in → **Create API Key**, copy the key
 
-## Accessing
+### Gmail App Password (required for outbound email)
 
-```bash
-NODE_PORT=$(kubectl get svc b2b-sdr-agent-openclaw -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT — OpenClaw web chat / SDR interface
+A Gmail App Password lets the SDR agent send emails from your Gmail account without using your actual account password.
 
-# Twenty CRM
-kubectl port-forward svc/b2b-sdr-agent-twenty 3000:3000
-# Open http://localhost:3000
-```
+**Prerequisites:** Your Gmail account must have 2-Step Verification enabled.
 
-## Key Configuration
+1. Go to [myaccount.google.com](https://myaccount.google.com)
+2. Click **Security** in the left menu
+3. Under "How you sign in to Google", click **2-Step Verification** (enable it if not already on)
+4. Scroll down and click **App passwords** (at the bottom of the 2-Step Verification page)
+5. Under "Select app", choose **Mail**
+6. Under "Select device", choose **Other (Custom name)** and type a name like `SDR Agent`
+7. Click **Generate**
+8. Copy the 16-character password shown (no spaces needed — ignore the spaces in the display)
 
-| Value | Default | Description |
-|-------|---------|-------------|
-| `openclaw.gatewayToken` | `""` | Auth token for the AI gateway. Required. |
-| `openclaw.anthropicApiKey` | `""` | Anthropic Claude API key |
-| `openclaw.openaiApiKey` | `""` | OpenAI API key |
-| `openclaw.groqApiKey` | `""` | Groq API key |
-| `openclaw.sdrName` | `Alex` | SDR persona name shown in conversations |
-| `openclaw.companyName` | `""` | Your company name |
-| `openclaw.gmailUser` | `""` | Gmail address for outbound emails |
-| `openclaw.gmailAppPassword` | `""` | Gmail App Password (not your account password) |
-| `twenty.appSecret` | `""` | 64-char hex secret for Twenty CRM. Required. |
-| `twenty.serverUrl` | `""` | External URL for correct CRM links |
-| `postgres.password` | `""` | Database password. Required. |
-| `telegram.botToken` | `""` | Optional Telegram bot token |
+> **Important:** This is not your Gmail account password. It is a separate app-specific password that can be revoked at any time.
 
-## Persistence
+### Telegram Bot Token (optional — for Telegram-based SDR interactions)
+1. Open Telegram and search for **@BotFather**
+2. Send `/newbot` → choose a name and username (must end in `bot`)
+3. BotFather replies with your token: `1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ`
+4. Copy this token
 
-Two PVCs: PostgreSQL data (default 10Gi), OpenClaw storage (default 5Gi).
+### Twenty CRM App Secret
+Generate a random 64-character hex string to use as the Twenty CRM secret. You can use any password generator — it just needs to be long and random.
+
+### Gateway Token
+Choose a strong password for your AI gateway (32+ random characters).
+
+## Configuration
+
+Fill in these values in the E2E Marketplace deployment form:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `openclaw.gatewayToken` | Yes | Auth token for the AI gateway. Choose a strong random value. |
+| `openclaw.anthropicApiKey` | No | Anthropic Claude API key. At least one LLM key required. |
+| `openclaw.openaiApiKey` | No | OpenAI API key. |
+| `openclaw.groqApiKey` | No | Groq API key. |
+| `openclaw.sdrName` | No | SDR persona name shown in conversations. Default: `Alex`. |
+| `openclaw.companyName` | No | Your company name (shown in outreach emails). |
+| `openclaw.gmailUser` | Yes | Gmail address to send outreach from (e.g. `you@gmail.com`). |
+| `openclaw.gmailAppPassword` | Yes | Gmail App Password (16-character, from myaccount.google.com/apppasswords). |
+| `twenty.appSecret` | Yes | 64-character random hex secret for Twenty CRM. |
+| `twenty.serverUrl` | No | External URL of your deployment (for correct CRM links). |
+| `postgres.password` | Yes | Database password. |
+| `telegram.botToken` | No | Telegram bot token from @BotFather. |
+
+## Ports
+
+| Port | Description |
+|------|-------------|
+| 80 | OpenClaw SDR interface |
+| 3000 | Twenty CRM dashboard |
 
 ## Troubleshooting
 
-**Twenty CRM blank page** — set `twenty.serverUrl` to your external URL
+**Emails not sending** — verify you are using a Gmail App Password (16 characters), not your Gmail account password. App passwords are generated at myaccount.google.com/apppasswords.
 
-**Emails not sending** — use a Gmail App Password, not your account password (myaccount.google.com/apppasswords)
+**Twenty CRM blank page** — set `twenty.serverUrl` to the external URL of your deployment so CRM internal links resolve correctly.
 
-**CRM migrations slow** — Twenty runs DB migrations on startup; allow 2-3 minutes on first boot
+**CRM migrations slow** — Twenty runs database migrations on first startup; allow 2–3 minutes before the CRM is accessible.
 
 ## License
 

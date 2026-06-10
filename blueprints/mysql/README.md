@@ -1,76 +1,42 @@
 # MySQL
 
-E2E's Kubernetes deployment of [MySQL](https://www.mysql.com) — the world's most popular open-source relational database. Reliable, battle-tested, and ideal for web applications.
+E2E's Kubernetes deployment of [MySQL](https://www.mysql.com) — the world's most popular open-source relational database.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Application → Service (NodePort :3306) → MySQL Pod → PVC (8Gi)
-```
+The E2E Marketplace provisions a standalone MySQL instance and shows the connection host and port in the dashboard.
 
-## Prerequisites
+| Service | Port | Protocol |
+|---------|------|----------|
+| MySQL | 3306 | MySQL protocol |
 
-- Kubernetes cluster (250m CPU, 512 MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Connect your application using: `mysql://USERNAME:PASSWORD@<deployment-host>:3306/DATABASE`
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install mysql blueprints/mysql \
-  --set auth.rootPassword=YOUR-ROOT-PASSWORD \
-  --set auth.database=mydb \
-  --set auth.username=myuser \
-  --set auth.password=YOUR-USER-PASSWORD \
-  --set primary.service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/mysql/values.example.yaml my-values.yaml
-helm install mysql blueprints/mysql -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc mysql -o jsonpath='{.spec.ports[0].nodePort}')
-mysql -h <node-ip> -P $NODE_PORT -u myuser -p mydb
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.rootPassword` | `""` | Root user password. Required. |
-| `auth.database` | `""` | Default database to create |
-| `auth.username` | `""` | Application user to create |
-| `auth.password` | `""` | Application user password |
-| `primary.service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `primary.persistence.enabled` | `true` | Persist data to PVC |
-| `primary.persistence.size` | `8Gi` | PVC size |
-| `architecture` | `standalone` | Set to `replication` for primary/replica HA |
-
-## Persistence
-
-One PVC is created for the primary node (default 8Gi). Replica nodes get separate PVCs when `architecture: replication`.
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.rootPassword` | Yes | Root user password. |
+| `auth.database` | No | Database name to create on first start. |
+| `auth.username` | No | Application user to create. |
+| `auth.password` | No | Password for the application user. |
+| `primary.persistence.size` | No | PVC size. Default: `8Gi`. |
 
 ## Ports
 
-| Port | Notes |
-|------|-------|
-| 3306 | MySQL client port |
+| Port | Description |
+|------|-------------|
+| 3306 | MySQL client connections |
 
 ## Troubleshooting
 
-**Access denied** — verify `auth.password` matches; root access requires `auth.rootPassword`
+**Access denied** — verify the password matches what was set at deployment time. Root access requires the root password; application access requires the application user password.
 
-**Data lost after pod restart** — check PVC is bound: `kubectl get pvc`
+**Slow first start** — MySQL initialises its data directory on first boot, which takes approximately 30 seconds.
 
-**Slow first start** — MySQL initialises the data directory on first boot (~30s)
+**Connection refused** — the pod may still be starting. Allow 60 seconds after deployment before connecting.
 
 ## License
 

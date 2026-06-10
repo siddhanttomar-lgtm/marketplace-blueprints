@@ -1,63 +1,32 @@
 # Jenkins + Maven
 
-E2E's Kubernetes deployment of [Jenkins](https://www.jenkins.io) with [Apache Maven](https://maven.apache.org) pre-installed. Jenkins is a leading open-source automation server for CI/CD pipelines; Maven handles Java project builds. Maven is injected at startup — no manual plugin or tool configuration required.
+E2E's Kubernetes deployment of [Jenkins](https://www.jenkins.io) with [Apache Maven](https://maven.apache.org) pre-installed. Maven 3.9 is injected at startup — no manual plugin or tool configuration required.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser → Service (NodePort :8080) → Jenkins Pod → PVC (10Gi)
-                                            │
-                                     Init Container
-                                   (maven:3.9-alpine)
-                                   copies Maven binary
-```
+The E2E Marketplace provisions Jenkins and shows the access URL in the dashboard. Allow up to 5 minutes for the UI to become available after deployment (JVM and plugin initialisation).
 
-## Requirements
+| Service | Port | Description |
+|---------|------|-------------|
+| Jenkins UI | 8080 | Web interface |
 
-- Kubernetes cluster (2 vCPU, 2GB RAM minimum — JVM is memory-heavy)
-- StorageClass supporting `ReadWriteOnce` PVCs
-- Allow ~5 minutes for full UI readiness after the pod reports Running (JVM + plugin init)
+Open `http://<deployment-url>:8080` and log in with username `admin` and the password you set.
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install jenkins-maven blueprints/jenkins-maven \
-  --set jenkins.jenkinsPassword=YOUR-PASSWORD
-```
-
-Using a values file:
-
-```bash
-cp blueprints/jenkins-maven/values.example.yaml my-values.yaml
-helm install jenkins-maven blueprints/jenkins-maven -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc jenkins-maven-jenkins -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:<NODE_PORT> in your browser
-# Login: admin / <your password>
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `jenkins.jenkinsPassword` | `""` | Admin password. Required. |
-| `jenkins.jenkinsUser` | `admin` | Admin username |
-| `jenkins.persistence.size` | `10Gi` | PVC size for Jenkins home |
-| `jenkins.resources.requests.memory` | `1Gi` | Memory request |
-| `jenkins.resources.requests.cpu` | `200m` | CPU request |
-| `jenkins.resources.limits.memory` | `2Gi` | Memory limit |
-| `jenkins.resources.limits.cpu` | `2` | CPU limit |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `jenkins.jenkinsPassword` | Yes | Admin password. |
+| `jenkins.jenkinsUser` | No | Admin username. Default: `admin`. |
+| `jenkins.persistence.size` | No | PVC size for Jenkins home. Default: `10Gi`. |
+| `jenkins.resources.requests.memory` | No | Memory request. Default: `1Gi`. JVM requires at least 1Gi. |
+| `jenkins.resources.limits.memory` | No | Memory limit. Default: `2Gi`. |
 
 ## Maven
 
-Maven 3.9 (LTS) is pre-installed at `/opt/maven`. The `MAVEN_HOME` and `PATH+MAVEN` environment variables are registered globally in Jenkins via an init Groovy script at startup.
+Maven 3.9 (LTS) is pre-installed at `/opt/maven`. The `MAVEN_HOME` and `PATH+MAVEN` environment variables are registered globally in Jenkins at startup.
 
 To use Maven in a pipeline:
 
@@ -77,25 +46,17 @@ pipeline {
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 8080 | NodePort | Jenkins web UI and API |
+| Port | Description |
+|------|-------------|
+| 8080 | Jenkins web UI and API |
 
 ## Troubleshooting
 
-**UI not loading after 5 minutes** — check startup logs: `kubectl logs -l app.kubernetes.io/name=jenkins -c jenkins`
+**UI not loading after 5 minutes** — Jenkins initialises plugins on first boot which is slow. Wait an additional 2–3 minutes and refresh. If it still doesn't load, contact E2E support.
 
-**Password incorrect** — retrieve from secret: `kubectl get secret jenkins-maven-jenkins -o jsonpath='{.data.jenkins-password}' | base64 -d`
+**Maven not found in pipeline** — verify the init Groovy ran: Jenkins → Manage Jenkins → System → Global properties → Environment variables. Look for `MAVEN_HOME`.
 
-**Maven not found in pipeline** — verify the init Groovy ran: check Jenkins → Manage Jenkins → System → Global properties → Environment variables for `MAVEN_HOME`
-
-**Pod pending** — check PVC: `kubectl get pvc`
-
-## Upgrading
-
-```bash
-helm upgrade jenkins-maven blueprints/jenkins-maven -f my-values.yaml
-```
+**Pod pending** — storage provisioning issue. Contact E2E support if the pod does not start within 5 minutes.
 
 ## License
 

@@ -1,84 +1,104 @@
 # OpenClaw Personal Assistant
 
-E2E's Kubernetes deployment of the [OpenClaw](https://github.com/openclaw/openclaw) Personal Assistant — an AI agent that manages your Gmail, Google Calendar, Google Drive, Sheets, and Docs via natural language chat over Telegram or web.
+E2E's Kubernetes deployment of the [OpenClaw](https://github.com/openclaw/openclaw) Personal Assistant — an AI agent that manages your Gmail, Google Calendar, Google Drive, Sheets, and Docs via natural language chat over Telegram or the web UI.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Telegram/Web → OpenClaw AI Gateway → LLM (Anthropic/OpenAI/Groq)
-                                    └→ Google APIs (Gmail, Calendar, Drive, Sheets, Docs)
-```
+The E2E Marketplace provisions the personal assistant and shows the access URL in the dashboard.
 
-## Prerequisites
+| Service | Port | Description |
+|---------|------|-------------|
+| OpenClaw Web Chat | 80 | AI chat interface |
 
-- Kubernetes cluster (1 vCPU, 1 GB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
-- At least one LLM API key (Anthropic, OpenAI, or Groq)
-- Google OAuth credentials (for Gmail/Calendar/Drive integration)
+Open `http://<deployment-url>` and start chatting with your assistant. Example commands:
+- "Check my Gmail for unread messages"
+- "Schedule a meeting tomorrow at 3pm"
+- "Create a Google Doc with the title 'Meeting Notes'"
 
-## Quick Start
+## Before You Deploy — Getting Your Credentials
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+### LLM API Key (required — choose one)
 
-helm install ai-personal-assistant blueprints/ai-personal-assistant \
-  --set openclaw.gatewayToken=YOUR-GATEWAY-TOKEN \
-  --set openclaw.anthropicApiKey=YOUR-ANTHROPIC-KEY \
-  --set openclaw.googleClientId=YOUR-CLIENT-ID \
-  --set openclaw.googleClientSecret=YOUR-CLIENT-SECRET \
-  --set openclaw.googleRefreshToken=YOUR-REFRESH-TOKEN \
-  --set openclaw.gmailAddress=you@gmail.com
-```
+**Anthropic API Key** (recommended):
+1. Go to [console.anthropic.com](https://console.anthropic.com)
+2. Sign up or log in → **Settings → API Keys → Create Key**
+3. Copy the key (starts with `sk-ant-`)
 
-Using a values file:
+**OpenAI API Key:**
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Sign in → **Create new secret key**, copy the key
 
-```bash
-cp blueprints/ai-personal-assistant/values.example.yaml my-values.yaml
-helm install ai-personal-assistant blueprints/ai-personal-assistant -f my-values.yaml
-```
+**Groq API Key:**
+1. Go to [console.groq.com/keys](https://console.groq.com/keys)
+2. Sign in → **Create API Key**, copy the key
 
-## Accessing
+### Google OAuth Credentials (required for Gmail/Calendar/Drive access)
 
-```bash
-NODE_PORT=$(kubectl get svc ai-personal-assistant-openclaw -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT — OpenClaw web chat
-```
+**Step 1 — Create a Google Cloud project:**
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Click **Select a project → New Project**, give it a name, click **Create**
 
-## Key Configuration
+**Step 2 — Enable the required APIs:**
+1. Go to **APIs & Services → Library**
+2. Search and enable each of these: **Gmail API**, **Google Calendar API**, **Google Drive API**, **Google Sheets API**, **Google Docs API**
 
-| Value | Default | Description |
-|-------|---------|-------------|
-| `openclaw.gatewayToken` | `""` | Auth token for the AI gateway. Required. |
-| `openclaw.anthropicApiKey` | `""` | Anthropic Claude API key |
-| `openclaw.openaiApiKey` | `""` | OpenAI API key |
-| `openclaw.groqApiKey` | `""` | Groq API key |
-| `openclaw.googleClientId` | `""` | Google OAuth client ID |
-| `openclaw.googleClientSecret` | `""` | Google OAuth client secret |
-| `openclaw.googleRefreshToken` | `""` | Google OAuth refresh token |
-| `openclaw.gmailAddress` | `""` | Gmail address to manage |
-| `openclaw.gmailSendName` | `Assistant` | Display name for outbound emails |
-| `openclaw.googleTranslateKey` | `""` | Optional Google Translate API key |
-| `telegram.botToken` | `""` | Optional Telegram bot token |
-| `openclaw.storage.size` | `5Gi` | PVC size for assistant data |
+**Step 3 — Create OAuth 2.0 credentials:**
+1. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
+2. If prompted, configure the OAuth consent screen first (External, add your email as a test user)
+3. Application type: **Web application**
+4. Under **Authorized redirect URIs**, add: `https://developers.google.com/oauthplayground`
+5. Click **Create** — copy the **Client ID** and **Client Secret**
 
-## Google OAuth Setup
+**Step 4 — Get a Refresh Token:**
+1. Go to [developers.google.com/oauthplayground](https://developers.google.com/oauthplayground)
+2. Click the gear icon (⚙) → check **Use your own OAuth credentials**
+3. Enter your **Client ID** and **Client Secret**
+4. In the left panel, find and select scopes for: Gmail, Google Calendar, Google Drive, Google Sheets, Google Docs
+5. Click **Authorize APIs** → sign in with your Google account → allow all permissions
+6. Click **Exchange authorization code for tokens**
+7. Copy the **Refresh token** value
 
-1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com)
-2. Enable: Gmail API, Calendar API, Drive API, Sheets API, Docs API
-3. Get a refresh token via [OAuth Playground](https://developers.google.com/oauthplayground)
+### Telegram Bot Token (optional — for Telegram access)
+1. Open Telegram and search for **@BotFather**
+2. Send `/newbot` → choose a name and username (must end in `bot`)
+3. BotFather replies with your token: `1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ`
+4. Copy this token
 
-## Persistence
+### Gateway Token
+Choose a strong password for your AI gateway (32+ random characters).
 
-One PVC is created for OpenClaw data (default 5Gi).
+## Configuration
+
+Fill in these values in the E2E Marketplace deployment form:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `openclaw.gatewayToken` | Yes | Auth token for the AI gateway. Choose a strong random value. |
+| `openclaw.anthropicApiKey` | No | Anthropic Claude API key. At least one LLM key required. |
+| `openclaw.openaiApiKey` | No | OpenAI API key. |
+| `openclaw.groqApiKey` | No | Groq API key. |
+| `openclaw.googleClientId` | Yes | Google OAuth Client ID (from Google Cloud Console). |
+| `openclaw.googleClientSecret` | Yes | Google OAuth Client Secret. |
+| `openclaw.googleRefreshToken` | Yes | Google OAuth Refresh Token (from OAuth Playground). |
+| `openclaw.gmailAddress` | Yes | Gmail address to manage (e.g. `you@gmail.com`). |
+| `openclaw.gmailSendName` | No | Display name for outbound emails. Default: `Assistant`. |
+| `openclaw.googleTranslateKey` | No | Google Translate API key (optional). |
+| `telegram.botToken` | No | Telegram bot token from @BotFather. |
+| `openclaw.storage.size` | No | PVC size for assistant data. Default: `5Gi`. |
+
+## Ports
+
+| Port | Description |
+|------|-------------|
+| 80 | OpenClaw web chat |
 
 ## Troubleshooting
 
-**Google API errors** — verify OAuth scopes include the required APIs and the refresh token is fresh
+**Google API errors** — verify all five APIs are enabled in your Google Cloud project (Gmail, Calendar, Drive, Sheets, Docs) and that the OAuth consent screen has your account listed as a test user.
 
-**Telegram bot not responding** — check `telegram.botToken` and ensure the bot is started via @BotFather
+**Refresh token expired** — Google refresh tokens for apps in "Testing" status expire after 7 days. Repeat Step 4 of the Google OAuth setup to generate a new one, then redeploy.
 
-**No LLM response** — confirm at least one API key (`anthropicApiKey`, `openaiApiKey`, or `groqApiKey`) is set
+**Telegram bot not responding** — verify the token is correct and send `/start` to your bot in Telegram to activate it.
 
 ## License
 

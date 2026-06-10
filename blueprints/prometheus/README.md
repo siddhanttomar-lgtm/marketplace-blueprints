@@ -1,81 +1,45 @@
 # Prometheus
 
-E2E's Kubernetes deployment of [Prometheus](https://prometheus.io) — the open-source systems monitoring and alerting toolkit. Scrape metrics from your workloads, store time-series data, and query with PromQL.
+E2E's Kubernetes deployment of [Prometheus](https://prometheus.io) — the open-source systems monitoring and alerting toolkit for scraping, storing, and querying time-series metrics.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Prometheus Server → Scrape targets (pods, nodes, kube-state-metrics)
-       └→ PVC (8Gi metrics storage)
-  Node Exporter (DaemonSet) → Node-level metrics
-  Pushgateway (optional) → Push metrics endpoint
-```
+The E2E Marketplace provisions Prometheus and shows the access URL in the dashboard.
 
-## Prerequisites
+| Service | Port | Description |
+|---------|------|-------------|
+| Prometheus UI | 80 | Web interface and PromQL query console |
+| Pushgateway | 9091 | Push metrics endpoint (if enabled) |
 
-- Kubernetes cluster (1 vCPU, 512 MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
-- RBAC enabled (ClusterRole is created for metric scraping)
+Open `http://<deployment-url>` in your browser to access the Prometheus query interface.
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install prometheus blueprints/prometheus \
-  --set server.service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/prometheus/values.example.yaml my-values.yaml
-helm install prometheus blueprints/prometheus -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc prometheus-server -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT in your browser
-
-# Or via port-forward:
-kubectl port-forward svc/prometheus-server 9090:80
-# Open http://localhost:9090
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `server.service.type` | `ClusterIP` | Set `NodePort` for browser access |
-| `server.persistentVolume.enabled` | `true` | Persist metrics data |
-| `server.persistentVolume.size` | `8Gi` | PVC size |
-| `server.retention` | `15d` | How long to keep metrics |
-| `server.resources.requests.memory` | `512Mi` | Memory for Prometheus server |
-| `prometheus-pushgateway.enabled` | `true` | Disable if not needed |
-| `prometheus-node-exporter.enabled` | `true` | Node-level metrics via DaemonSet |
-
-## Persistence
-
-One PVC is created for the Prometheus server (default 8Gi for time-series data).
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `server.persistentVolume.size` | No | PVC size for time-series data. Default: `8Gi`. |
+| `server.retention` | No | How long to keep metrics. Default: `15d`. |
+| `server.resources.requests.memory` | No | Memory for the Prometheus server. Default: `512Mi`. |
+| `prometheus-pushgateway.enabled` | No | Enable push metrics endpoint. Default: `true`. |
+| `prometheus-node-exporter.enabled` | No | Enable node-level metrics via DaemonSet. Default: `true`. |
 
 ## Ports
 
-| Port | Service | Notes |
-|------|---------|-------|
+| Port | Service | Description |
+|------|---------|-------------|
 | 80 | prometheus-server | Web UI and API |
 | 9091 | prometheus-pushgateway | Push metrics endpoint (if enabled) |
-| 9100 | prometheus-node-exporter | Node metrics (DaemonSet) |
+| 9100 | prometheus-node-exporter | Node metrics (DaemonSet, internal) |
 
 ## Troubleshooting
 
-**Targets all DOWN** — verify ClusterRole was created: `kubectl get clusterrole prometheus-server`
+**Targets all DOWN** — RBAC permissions may not have been created. Contact E2E support to verify the ClusterRole was applied correctly.
 
-**Out of disk** — increase `server.persistentVolume.size` or reduce `server.retention`
+**Out of disk** — increase `server.persistentVolume.size` or reduce `server.retention` in your deployment configuration.
 
-**pushgateway crash** — set `prometheus-pushgateway.enabled: false` if not needed
+**pushgateway crash** — set `prometheus-pushgateway.enabled: false` if you don't need to push metrics.
 
 ## License
 

@@ -73,7 +73,7 @@ postgres:
   storage:
     size: 10Gi
   user: "twenty"
-  password: "TwentyPass123"
+  password: ""
   database: "twenty"
   resources:
     requests:

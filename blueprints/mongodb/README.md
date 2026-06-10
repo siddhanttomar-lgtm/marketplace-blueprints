@@ -1,70 +1,43 @@
 # MongoDB
 
-E2E's Kubernetes deployment of [MongoDB](https://www.mongodb.com) — the leading open-source document database. Standalone instance with authentication and persistent storage.
+E2E's Kubernetes deployment of [MongoDB](https://www.mongodb.com) — the leading open-source document database.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Your App → Service (NodePort :27017) → MongoDB Pod → PVC (8Gi)
-```
+The E2E Marketplace provisions a standalone MongoDB instance and shows the connection endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| MongoDB | 27017 | MongoDB protocol |
 
-- Kubernetes cluster (1 vCPU, 512MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Connect your application using: `mongodb://root:PASSWORD@<deployment-host>:27017`
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install mongodb blueprints/mongodb \
-  --set auth.rootPassword=YOUR-PASSWORD \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/mongodb/values.example.yaml my-values.yaml
-helm install mongodb blueprints/mongodb -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc mongodb -o jsonpath='{.spec.ports[0].nodePort}')
-mongosh "mongodb://root:YOUR-PASSWORD@<node-ip>:$NODE_PORT"
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.enabled` | `true` | Enable MongoDB authentication |
-| `auth.rootPassword` | `""` | Root user password. Required when auth is enabled. |
-| `auth.rootUser` | `root` | Root username |
-| `auth.database` | `""` | Database to create on first start |
-| `auth.username` | `""` | Additional user to create |
-| `auth.password` | `""` | Password for the additional user |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `persistence.size` | `8Gi` | PVC size |
-| `persistence.storageClass` | `""` | Leave empty for cluster default |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.rootPassword` | Yes | Root user password. Required when authentication is enabled. |
+| `auth.rootUser` | No | Root username. Default: `root`. |
+| `auth.database` | No | Database to create on first start. |
+| `auth.username` | No | Additional user to create. |
+| `auth.password` | No | Password for the additional user. |
+| `persistence.size` | No | PVC size. Default: `8Gi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 27017 | ClusterIP | Set `service.type=NodePort` or: `kubectl port-forward svc/mongodb 27017:27017` |
+| Port | Description |
+|------|-------------|
+| 27017 | MongoDB client connections |
 
 ## Troubleshooting
 
-**Pending pod** — `kubectl get pvc` and `kubectl describe nodes`
+**Auth failure** — verify root password and username match what was set during deployment.
 
-**Auth failure** — `kubectl get secret mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d`
+**Slow startup** — MongoDB initialises storage on first boot; allow 30–60 seconds.
 
-**Slow startup** — MongoDB initializes storage on first start; allow 30-60 seconds
+**Pending pod** — storage provisioning issue. Contact E2E support if the pod does not start within 5 minutes.
 
 ## License
 

@@ -20,7 +20,7 @@ blueprints/{name}/          ← one chart per blueprint
     templates/              ← K8s manifests (or NOTES.txt for wrapper charts)
 scripts/
     validate.sh             ← helm lint + helm template dry-run on all charts
-    new-blueprint.sh        ← scaffolding script — creates a new blueprint skeleton
+    create-blueprint.sh     ← scaffolding script — creates a new blueprint skeleton
 .github/workflows/
     lint-charts.yaml        ← runs make lint on every PR touching blueprints/
     gitleaks.yml            ← secret scan on every push and PR
@@ -55,7 +55,7 @@ DEVELOPER.md                ← internal onboarding guide + AI assistant instruc
 
 - Do not add internal E2E details (IPs, API endpoints, product IDs, DB credentials) to any file
 - Do not modify `scripts/validate.sh` or `Makefile` without testing locally first
-- Do not change `chart-dirs` in `.cr.yaml` — chart-releaser depends on it
+- Do not change `chart-dirs` in `.charts-releaser.yaml` — chart-releaser depends on it
 - Do not commit `my-values.yaml` or any file matching `*-secret.yaml`
 - Do not push directly to `main` — all changes go through PRs
 - Do not bump `appVersion` without also verifying the upstream chart version is available
@@ -67,12 +67,12 @@ DEVELOPER.md                ← internal onboarding guide + AI assistant instruc
 Use the scaffolding script — it creates the full folder skeleton:
 
 ```bash
-bash scripts/new-blueprint.sh <name> "<display name>" "<one-line description>" "<upstream version>"
+bash scripts/create-blueprint.sh <name> "<display name>" "<one-line description>" "<upstream version>"
 ```
 
 Example:
 ```bash
-bash scripts/new-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+bash scripts/create-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
 ```
 
 Then fill in `values.yaml`, complete `README.md`, and run:

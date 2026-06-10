@@ -1,86 +1,42 @@
 # Keycloak
 
-E2E's Kubernetes deployment of [Keycloak](https://www.keycloak.org) — the open-source Identity and Access Management solution. Provides single sign-on (SSO), social login, MFA, user federation, and fine-grained authorization. PostgreSQL is bundled as the backend database.
+E2E's Kubernetes deployment of [Keycloak](https://www.keycloak.org) — the open-source Identity and Access Management solution for SSO, social login, MFA, and fine-grained authorization. PostgreSQL is bundled as the backend database.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser / App → Service (NodePort :80) → Keycloak Pod → PVC
-                                                │
-                                         PostgreSQL Pod → PVC
-```
+The E2E Marketplace provisions Keycloak and shows the access URL in the dashboard.
 
-## Requirements
+| Service | Port | Description |
+|---------|------|-------------|
+| Keycloak HTTP | 80 | Web UI and admin console |
 
-- Kubernetes cluster (1 vCPU, 1GB RAM minimum; 2 vCPU / 2GB recommended)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Open `http://<deployment-url>/admin` to access the admin console. Log in with the admin username and password you set.
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install keycloak blueprints/keycloak \
-  --set auth.adminPassword=YOUR-ADMIN-PASSWORD \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/keycloak/values.example.yaml my-values.yaml
-helm install keycloak blueprints/keycloak -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc keycloak -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:<NODE_PORT> in your browser
-# Admin console: http://<node-ip>:<NODE_PORT>/admin
-# Login: user / <your password>
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.adminUser` | `user` | Keycloak admin username |
-| `auth.adminPassword` | `""` | Admin password. Required. |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `postgresql.auth.password` | `""` | PostgreSQL password (auto-generated if empty) |
-| `postgresql.primary.persistence.size` | `8Gi` | PostgreSQL PVC size |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.adminPassword` | Yes | Admin account password. |
+| `auth.adminUser` | No | Admin username. Default: `user`. |
+| `postgresql.auth.password` | No | PostgreSQL password (auto-generated if empty). |
+| `postgresql.primary.persistence.size` | No | PostgreSQL PVC size. Default: `8Gi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 80 | ClusterIP | Keycloak HTTP — set `service.type=NodePort` or use port-forward |
-| 443 | ClusterIP | Keycloak HTTPS |
-
-Port-forward alternative:
-
-```bash
-kubectl port-forward svc/keycloak 8080:80
-# Open http://localhost:8080/admin
-```
+| Port | Description |
+|------|-------------|
+| 80 | Keycloak HTTP |
+| 443 | Keycloak HTTPS |
 
 ## Troubleshooting
 
-**Pod stuck in Pending** — check PVC binding: `kubectl get pvc`
+**Pod stuck in Pending** — storage provisioning issue. Contact E2E support if the pod does not start within 5 minutes.
 
-**Can't access admin console** — verify `service.type=NodePort` and the node IP is reachable
+**Can't access admin console** — verify the deployment URL in the marketplace dashboard is correct. The admin console is at `<url>/admin`.
 
-**Password incorrect** — retrieve from secret: `kubectl get secret keycloak -o jsonpath='{.data.admin-password}' | base64 -d`
-
-**Database not ready** — check PostgreSQL pod: `kubectl get pods -l app.kubernetes.io/name=postgresql`
-
-## Upgrading
-
-```bash
-helm upgrade keycloak blueprints/keycloak -f my-values.yaml
-```
+**Database not ready** — Keycloak starts after PostgreSQL is ready; allow 3–5 minutes after deployment.
 
 ## License
 

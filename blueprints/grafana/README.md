@@ -1,76 +1,39 @@
 # Grafana
 
-E2E's Kubernetes deployment of [Grafana](https://grafana.com) — the open-source analytics and observability platform. Connect your data sources, build dashboards, and set up alerts.
+E2E's Kubernetes deployment of [Grafana](https://grafana.com) — the open-source analytics and observability platform for building dashboards and alerts from your data sources.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser → Service (NodePort :3000) → Grafana Pod → PVC (10Gi)
-```
+The E2E Marketplace provisions Grafana and shows the access URL in the dashboard.
 
-## Requirements
+| Service | Port | Description |
+|---------|------|-------------|
+| Grafana UI | 3000 | Web interface |
 
-- Kubernetes cluster (1 vCPU, 512MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Open `http://<deployment-url>:3000` in your browser and log in with username `admin` and the password you set.
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install grafana blueprints/grafana \
-  --set admin.password=YOUR-ADMIN-PASSWORD \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/grafana/values.example.yaml my-values.yaml
-helm install grafana blueprints/grafana -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc grafana -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT in your browser
-# Login: admin / <your-password>
-```
-
-Or via port-forward (if using ClusterIP default):
-
-```bash
-kubectl port-forward svc/grafana 3000:3000
-# Open http://localhost:3000
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `admin.user` | `admin` | Admin username |
-| `admin.password` | `""` | Admin password. Required. |
-| `service.type` | `ClusterIP` | Set `NodePort` for browser access without port-forward |
-| `persistence.enabled` | `true` | Persist dashboards and settings |
-| `persistence.size` | `10Gi` | PVC size |
-| `persistence.storageClass` | `""` | Leave empty for cluster default |
-| `grafana.plugins` | `[]` | List of Grafana plugins to install on startup |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `admin.password` | Yes | Admin account password. |
+| `admin.user` | No | Admin username. Default: `admin`. |
+| `persistence.size` | No | PVC size for dashboards and settings. Default: `10Gi`. |
+| `grafana.plugins` | No | Comma-separated list of Grafana plugins to install on startup. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 3000 | ClusterIP | Set `service.type=NodePort` or: `kubectl port-forward svc/grafana 3000:3000` |
+| Port | Description |
+|------|-------------|
+| 3000 | Grafana web interface |
 
 ## Troubleshooting
 
-**Blank dashboard / login loop** — check pod logs: `kubectl logs deploy/grafana`
+**Blank dashboard / login loop** — the pod may still be initialising. Allow 2–3 minutes after deployment and refresh the page.
 
-**Forgot password** — reset via: `kubectl exec deploy/grafana -- grafana-cli admin reset-admin-password NEW-PASSWORD`
-
-**Plugin install fails** — requires internet access from the pod at startup
+**Plugin install fails** — plugin installation requires outbound internet access from the pod at startup. Verify your cluster allows outbound traffic.
 
 ## License
 

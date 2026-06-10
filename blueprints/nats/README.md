@@ -1,67 +1,42 @@
 # NATS
 
-E2E's Kubernetes deployment of [NATS](https://nats.io) — the cloud-native, high-performance messaging system. Supports pub/sub, request/reply, and queue groups with extremely low latency.
+E2E's Kubernetes deployment of [NATS](https://nats.io) — the cloud-native, high-performance messaging system supporting pub/sub, request/reply, and queue groups.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Publishers/Subscribers → Service (NodePort :4222) → NATS Pod
-  Monitoring             → Service (ClusterIP :8222) → NATS monitoring endpoint
-```
+The E2E Marketplace provisions a NATS server and shows the client endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| NATS Client | 4222 | NATS protocol |
 
-- Kubernetes cluster (0.5 vCPU, 128MB RAM minimum)
+Connect clients using: `nats://<deployment-host>:4222`
 
-## Quick Start
+If `auth.enabled=true`, use: `nats://TOKEN@<deployment-host>:4222`
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+## Configuration
 
-helm install nats blueprints/nats \
-  --set service.type=NodePort
-```
+Fill in these values in the E2E Marketplace deployment form:
 
-Using a values file:
-
-```bash
-cp blueprints/nats/values.example.yaml my-values.yaml
-helm install nats blueprints/nats -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc nats -o jsonpath='{.spec.ports[?(@.name=="client")].nodePort}')
-# Using nats CLI
-nats pub -s nats://<node-ip>:$NODE_PORT test "hello"
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.enabled` | `true` | Enable token-based authentication |
-| `auth.token` | `""` | Auth token (auto-generated if empty) |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `replicaCount` | `1` | Number of NATS server replicas |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.enabled` | No | Enable token-based authentication. Default: `true`. |
+| `auth.token` | No | Auth token (auto-generated if left empty). |
+| `replicaCount` | No | Number of NATS server replicas. Default: `1`. |
 
 ## Ports
 
-| Port | Default Service Type | Description |
-|------|---------------------|-------------|
-| 4222 | ClusterIP | Client connections |
-| 6222 | ClusterIP | Cluster routing (internal) |
-| 8222 | ClusterIP | HTTP monitoring endpoint |
-
-Set `service.type=NodePort` to expose port 4222 externally.
+| Port | Description |
+|------|-------------|
+| 4222 | Client connections |
+| 6222 | Cluster routing (internal) |
+| 8222 | HTTP monitoring endpoint (internal) |
 
 ## Troubleshooting
 
-**Client connection refused** — verify `service.type=NodePort` and check pod status
+**Client connection refused** — verify your client is using the connection string shown in the marketplace dashboard.
 
-**Auth token** — `kubectl get secret nats -o jsonpath='{.data.client-auth-token}' | base64 -d` (if secret exists)
+**Auth token** — if you did not set `auth.token`, it was auto-generated. Contact E2E support to retrieve deployment configuration details.
 
 ## License
 

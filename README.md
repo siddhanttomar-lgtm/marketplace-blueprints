@@ -36,7 +36,6 @@ Every blueprint in this repository is a fully self-contained Kubernetes deployme
 | [Claw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 4.1.0 | AI / Agents |
 | [OpenClaw Personal Assistant](blueprints/ai-personal-assistant/README.md) | 1.0.0 | AI / Agents |
 | [OpenClaw Project Manager](blueprints/ai-pm/README.md) | 1.0.0 | AI / Agents |
-| [Nvidia Video Search and Summarization (VSS)](blueprints/vss/README.md) | 3.1.0 | AI / Video |
 | [n8n](blueprints/n8n/README.md) | 1.122.4 | Automation |
 
 > New blueprints are added regularly. To propose or contribute one, see [CONTRIBUTING.md](CONTRIBUTING.md).

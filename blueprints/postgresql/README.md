@@ -1,68 +1,40 @@
 # PostgreSQL
 
-E2E's Kubernetes deployment of [PostgreSQL](https://www.postgresql.org) — the world's most advanced open-source relational database. Standalone instance with authentication and persistent storage.
+E2E's Kubernetes deployment of [PostgreSQL](https://www.postgresql.org) — the world's most advanced open-source relational database.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Your App → Service (NodePort :5432) → PostgreSQL Pod → PVC (8Gi)
-```
+The E2E Marketplace provisions a standalone PostgreSQL instance and shows the connection endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| PostgreSQL | 5432 | PostgreSQL protocol |
 
-- Kubernetes cluster (1 vCPU, 512MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Connect your application using: `postgresql://postgres:PASSWORD@<deployment-host>:5432/DATABASE`
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install postgresql blueprints/postgresql \
-  --set auth.postgresPassword=YOUR-PASSWORD \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/postgresql/values.example.yaml my-values.yaml
-helm install postgresql blueprints/postgresql -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc postgresql -o jsonpath='{.spec.ports[0].nodePort}')
-psql -h <node-ip> -p $NODE_PORT -U postgres
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.postgresPassword` | `""` | Superuser password. Required. |
-| `auth.database` | `""` | Database to create on first start |
-| `auth.username` | `""` | Additional user to create |
-| `auth.password` | `""` | Password for the additional user |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `primary.persistence.size` | `8Gi` | PVC size |
-| `primary.persistence.storageClass` | `""` | Leave empty for cluster default |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.postgresPassword` | Yes | Superuser (`postgres`) password. |
+| `auth.database` | No | Database to create on first start. |
+| `auth.username` | No | Additional user to create. |
+| `auth.password` | No | Password for the additional user. |
+| `primary.persistence.size` | No | PVC size. Default: `8Gi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 5432 | ClusterIP | Set `service.type=NodePort` or: `kubectl port-forward svc/postgresql 5432:5432` |
+| Port | Description |
+|------|-------------|
+| 5432 | PostgreSQL client connections |
 
 ## Troubleshooting
 
-**Pending pod** — `kubectl get pvc` and `kubectl describe nodes`
+**Auth failure** — verify the password matches what was set at deployment time. The superuser name is `postgres`.
 
-**Auth failure** — `kubectl get secret postgresql -o jsonpath='{.data.postgres-password}' | base64 -d`
-
-**Can't connect remotely** — confirm `service.type=NodePort`
+**Pending pod** — the storage volume may not be provisioning. Contact E2E support if the pod does not start within 5 minutes.
 
 ## License
 

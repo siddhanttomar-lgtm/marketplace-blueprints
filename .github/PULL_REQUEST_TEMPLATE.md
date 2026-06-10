@@ -4,7 +4,7 @@
 
 ## Blueprint affected
 
-<!-- e.g. vss, redis, keycloak -->
+<!-- e.g. redis, keycloak, openclaw -->
 
 ## Checklist
 

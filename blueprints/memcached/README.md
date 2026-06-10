@@ -1,63 +1,39 @@
 # Memcached
 
-E2E's Kubernetes deployment of [Memcached](https://memcached.org) — the high-performance, distributed memory object caching system. Simple, stateless, and extremely fast for session caching and data caching use cases.
+E2E's Kubernetes deployment of [Memcached](https://memcached.org) — the high-performance, distributed memory object caching system.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Your App → Service (NodePort :11211) → Memcached Pod
-```
+The E2E Marketplace provisions a Memcached instance and shows the connection endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| Memcached | 11211 | Memcache protocol |
 
-- Kubernetes cluster (0.5 vCPU, 128MB RAM minimum)
+Connect your application using the host and port shown in the dashboard.
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install memcached blueprints/memcached \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/memcached/values.example.yaml my-values.yaml
-helm install memcached blueprints/memcached -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc memcached -o jsonpath='{.spec.ports[0].nodePort}')
-# Test connection (requires memcached-tool or telnet)
-echo "stats" | nc <node-ip> $NODE_PORT
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.enabled` | `false` | Enable SASL authentication (requires clients that support it) |
-| `auth.password` | `""` | SASL password (only used when `auth.enabled=true`) |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `resources.limits.memory` | `256Mi` | Maximum memory Memcached can use |
-| `replicaCount` | `1` | Number of Memcached instances |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `resources.limits.memory` | No | Maximum memory Memcached can use. Default: `256Mi`. |
+| `auth.enabled` | No | Enable SASL authentication. Default: `false`. |
+| `auth.password` | No | SASL password (only used when `auth.enabled=true`). |
+| `replicaCount` | No | Number of Memcached instances. Default: `1`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 11211 | ClusterIP | Set `service.type=NodePort` or: `kubectl port-forward svc/memcached 11211:11211` |
+| Port | Description |
+|------|-------------|
+| 11211 | Memcache protocol |
 
 ## Troubleshooting
 
-**Connection refused** — verify pod is running: `kubectl get pods -l app.kubernetes.io/name=memcached`
+**Out of memory errors in your app** — increase `resources.limits.memory` in the deployment configuration.
 
-**Out of memory errors in your app** — increase `resources.limits.memory`
+**Connection refused** — the pod may still be starting. Allow 30 seconds after deployment.
 
 ## License
 

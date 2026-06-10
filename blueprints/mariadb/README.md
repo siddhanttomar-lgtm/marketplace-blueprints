@@ -1,68 +1,42 @@
 # MariaDB
 
-E2E's Kubernetes deployment of [MariaDB](https://mariadb.org) — the community-developed, open-source relational database and drop-in replacement for MySQL. Standalone instance with authentication and persistent storage.
+E2E's Kubernetes deployment of [MariaDB](https://mariadb.org) — the community-developed, drop-in replacement for MySQL with persistent storage.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Your App → Service (NodePort :3306) → MariaDB Pod → PVC (8Gi)
-```
+The E2E Marketplace provisions a standalone MariaDB instance and shows the connection endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| MariaDB | 3306 | MySQL protocol |
 
-- Kubernetes cluster (1 vCPU, 512MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Connect your application using: `mysql://USERNAME:PASSWORD@<deployment-host>:3306/DATABASE`
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install mariadb blueprints/mariadb \
-  --set auth.rootPassword=YOUR-ROOT-PASSWORD \
-  --set primary.service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/mariadb/values.example.yaml my-values.yaml
-helm install mariadb blueprints/mariadb -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc mariadb -o jsonpath='{.spec.ports[0].nodePort}')
-mysql -h <node-ip> -P $NODE_PORT -u root -p
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `auth.rootPassword` | `""` | Root password. Required. |
-| `auth.database` | `""` | Database to create on first start |
-| `auth.username` | `""` | Additional user to create |
-| `auth.password` | `""` | Password for the additional user |
-| `primary.service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `primary.persistence.size` | `8Gi` | PVC size |
-| `primary.persistence.storageClass` | `""` | Leave empty for cluster default |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `auth.rootPassword` | Yes | Root user password. |
+| `auth.database` | No | Database to create on first start. |
+| `auth.username` | No | Additional user to create. |
+| `auth.password` | No | Password for the additional user. |
+| `primary.persistence.size` | No | PVC size. Default: `8Gi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 3306 | ClusterIP | Set `primary.service.type=NodePort` or: `kubectl port-forward svc/mariadb 3306:3306` |
+| Port | Description |
+|------|-------------|
+| 3306 | MariaDB/MySQL client connections |
 
 ## Troubleshooting
 
-**Pod crash-loops** — often a storage issue: `kubectl describe pod -l app.kubernetes.io/name=mariadb`
+**Auth failure** — verify your application is using the correct username and password set at deployment time.
 
-**Auth failure** — `kubectl get secret mariadb -o jsonpath='{.data.mariadb-root-password}' | base64 -d`
+**Slow first start** — MariaDB initialises its data directory on first boot; allow 30–60 seconds.
 
-**Slow first start** — MariaDB initializes on first boot; allow 30-60 seconds
+**Pod crash-loops** — often a storage provisioning issue. Contact E2E support if the pod does not start within 5 minutes.
 
 ## License
 

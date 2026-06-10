@@ -60,8 +60,8 @@ Good references to study:
 | If your blueprint is... | Study this |
 |------------------------|-----------|
 | A database or cache | [`blueprints/redis`](blueprints/redis/) |
-| A web application | [`blueprints/wordpress`](blueprints/wordpress/) |
-| A multi-component AI stack | [`blueprints/rag-kb`](blueprints/rag-kb/) |
+| A web application | [`blueprints/n8n`](blueprints/n8n/) |
+| A multi-component AI stack | [`blueprints/openclaw`](blueprints/openclaw/) |
 | A developer tool | [`blueprints/gitea`](blueprints/gitea/) |
 | A monitoring stack | [`blueprints/prometheus`](blueprints/prometheus/) |
 
@@ -70,7 +70,13 @@ Good references to study:
 Before submitting, run the lint and dry-run check on your chart:
 
 ```bash
-make validate CHART=blueprints/<your-blueprint>
+helm lint blueprints/<your-blueprint> --strict
+```
+
+To run validation across all charts:
+
+```bash
+make validate
 ```
 
 All checks must pass before opening a pull request.

@@ -1,71 +1,42 @@
 # n8n
 
-E2E's Kubernetes deployment of [n8n](https://n8n.io) — the fair-code workflow automation platform. Build automation workflows connecting 400+ apps and services with a visual editor or code nodes.
+E2E's Kubernetes deployment of [n8n](https://n8n.io) — the fair-code workflow automation platform connecting 400+ apps and services with a visual editor or code nodes.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser → Service (NodePort :80) → n8n Pod ─→ Valkey (in-cluster queue)
-                                              └→ PVC (1Gi, SQLite data)
-```
+The E2E Marketplace provisions n8n and shows the access URL in the dashboard.
 
-n8n ships with an embedded Valkey (Redis-compatible) instance for job queuing and a SQLite database by default.
+| Service | Port | Description |
+|---------|------|-------------|
+| n8n Web UI | 80 | Visual workflow editor |
 
-## Requirements
+Open `http://<deployment-url>` in your browser to access the n8n editor. Create your admin account on first launch.
 
-- Kubernetes cluster (1 vCPU, 512MB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+## Configuration
 
-## Quick Start
+Fill in these values in the E2E Marketplace deployment form:
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
-
-helm install n8n blueprints/n8n \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/n8n/values.example.yaml my-values.yaml
-helm install n8n blueprints/n8n -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc n8n -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT in your browser
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `service.type` | `ClusterIP` | Set `NodePort` for browser access |
-| `service.port` | `80` | Service port |
-| `persistence.enabled` | `true` | Persist workflow data |
-| `persistence.size` | `1Gi` | PVC size for n8n data |
-| `env.N8N_ENCRYPTION_KEY` | `""` | Encryption key for credentials. Set a strong random value. |
-| `env.N8N_BASIC_AUTH_ACTIVE` | `"false"` | Enable basic auth |
-| `env.N8N_BASIC_AUTH_USER` | `""` | Basic auth username |
-| `env.N8N_BASIC_AUTH_PASSWORD` | `""` | Basic auth password |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `env.N8N_ENCRYPTION_KEY` | Yes | Encryption key for stored credentials. Set a strong random value and keep it safe — if lost, stored credentials cannot be decrypted. |
+| `env.N8N_BASIC_AUTH_ACTIVE` | No | Enable basic auth on the UI. Default: `false`. |
+| `env.N8N_BASIC_AUTH_USER` | No | Basic auth username (if auth enabled). |
+| `env.N8N_BASIC_AUTH_PASSWORD` | No | Basic auth password (if auth enabled). |
+| `persistence.size` | No | PVC size for workflow data. Default: `1Gi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 80 | ClusterIP | n8n web UI and API — set `service.type=NodePort` or: `kubectl port-forward svc/n8n 5678:80` |
+| Port | Description |
+|------|-------------|
+| 80 | n8n web UI and API |
 
 ## Troubleshooting
 
-**Workflows not saving** — verify PVC is bound: `kubectl get pvc`
+**Workflows not saving** — the PVC may not be provisioned correctly. Contact E2E support if workflows disappear after restart.
 
-**Can't access UI remotely** — set `service.type=NodePort`
+**First run takes 60–90 seconds** — n8n initialises its SQLite database on first boot; this is normal.
 
-**First run takes 60-90s** — n8n initializes its database on first boot
+**Credentials encrypted with wrong key** — if you change `N8N_ENCRYPTION_KEY` after deployment, all stored credentials become unreadable. Keep this key constant.
 
 ## License
 

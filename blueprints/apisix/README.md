@@ -1,117 +1,47 @@
 # Apache APISIX
 
-E2E's Kubernetes deployment of [Apache APISIX](https://apisix.apache.org) — a high-performance, extensible API gateway with a built-in Dashboard UI. This chart deploys APISIX, embedded etcd, and the Dashboard in a single pod with persistent route storage.
+E2E's Kubernetes deployment of [Apache APISIX](https://apisix.apache.org) — a high-performance, extensible API gateway with a built-in Dashboard UI, embedded etcd, and persistent route storage.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  External Traffic
-        │
-  ┌─────▼──────────────────────────────────┐
-  │   Service (ClusterIP / Platform Ingress) │
-  │   port 80 → APISIX Gateway (:9080)      │
-  │   port 9000 → Dashboard UI (:9000)      │
-  └──────────────────────────────────────────┘
-        │
-  ┌─────▼──────────────────────────────────┐
-  │         Single Pod                       │
-  │  ┌────────────┐   ┌──────────────────┐  │
-  │  │   APISIX   │   │  Dashboard 3.0.1 │  │
-  │  │  :9080     │◄──│  :9000           │  │
-  │  │  Admin:9180│   └──────────────────┘  │
-  │  └────────────┘                         │
-  │  ┌────────────┐   ┌──────────────────┐  │
-  │  │    etcd    │   │  OpenResty proxy │  │
-  │  │  :2379     │   │  (bug sidecar)   │  │
-  │  └────────────┘   └──────────────────┘  │
-  └──────────────────────────────────────────┘
-        │
-  ┌─────▼──────────┐
-  │  etcd PVC (5Gi) │
-  └─────────────────┘
-```
+The E2E Marketplace provisions APISIX and shows two access points in the dashboard:
 
-## Prerequisites
+| Service | Port | Description |
+|---------|------|-------------|
+| Gateway | 80 | Public API traffic endpoint — add routes before sending traffic |
+| Dashboard UI | 9000 | Admin interface for configuring routes, upstreams, and plugins |
 
-- Kubernetes cluster (250m CPU, 450Mi RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Open the Dashboard at `http://<deployment-host>:9000`, log in with username `admin` and the password you set, and change the password on first login.
 
-## Quick Start
+**Gateway test:** Sending a request to the gateway before adding routes returns `{"error_msg":"404 Route Not Found"}` — this means the gateway is working correctly, just waiting for routes to be configured.
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+## Configuration
 
-helm install apisix blueprints/apisix \
-  --set dashboard.adminPassword=YOUR-DASHBOARD-PASSWORD \
-  --set apisix.adminCredentials.admin=YOUR-ADMIN-KEY
-```
+Fill in these values in the E2E Marketplace deployment form:
 
-Using a values file:
-
-```bash
-cp blueprints/apisix/values.example.yaml my-values.yaml
-helm install apisix blueprints/apisix -f my-values.yaml
-```
-
-## Accessing
-
-**Gateway** (route traffic through here after adding routes):
-```bash
-curl http://<gateway-url>/
-# {"error_msg":"404 Route Not Found"} — gateway running, no routes configured yet
-```
-
-**Dashboard UI** — configure routes, upstreams, and plugins:
-```
-URL:      http://<release-name>-dash.<cluster-ip>.sslip.io
-Username: admin
-Password: value of dashboard.adminPassword
-```
-Change the password on first login.
-
-**Admin API** (internal only — never expose publicly):
-```bash
-curl -H "X-API-KEY: <apisix.adminCredentials.admin>" \
-  http://<release-name>:9180/apisix/admin/routes
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `apisix.adminCredentials.admin` | `edd1c9f034...` | Admin API key — change before production |
-| `apisix.adminCredentials.viewer` | `4054f7cf07...` | Viewer API key |
-| `dashboard.adminUsername` | `admin` | Dashboard login username |
-| `dashboard.adminPassword` | `Admin@12345` | Dashboard login password — change before production |
-| `etcd.storage.size` | `5Gi` | PVC size for etcd (stores all routes and config) |
-| `apisix.resources.requests.cpu` | `100m` | APISIX CPU request |
-| `apisix.resources.requests.memory` | `256Mi` | APISIX memory request |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `dashboard.adminPassword` | Yes | Dashboard login password. Default is `Admin@12345` — change this. |
+| `apisix.adminCredentials.admin` | No | Admin API key for the APISIX Admin API. Change the default before production. |
+| `apisix.adminCredentials.viewer` | No | Viewer API key for read-only Admin API access. |
+| `etcd.storage.size` | No | PVC size for etcd (stores all routes and config). Default: `5Gi`. |
 
 ## Ports
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Gateway | 80 (→ 9080) | Public API traffic — add routes before using |
+| Gateway | 80 (→ 9080) | Public API traffic |
 | Dashboard | 9000 | Admin Dashboard UI |
-| Admin API | 9180 | Route/plugin management API (internal) |
+| Admin API | 9180 | Route/plugin management API (internal — do not expose publicly) |
 | etcd | 2379 | Internal config store (not exposed externally) |
-
-## Adding a Route (Quick Example)
-
-```bash
-curl -H "X-API-KEY: <admin-key>" -X PUT \
-  http://<release-name>:9180/apisix/admin/routes/1 \
-  -d '{"uri": "/api/*", "upstream": {"type": "roundrobin", "nodes": {"my-svc:80": 1}}}'
-```
 
 ## Troubleshooting
 
-**Blank plugin page in Dashboard** — expected; the OpenResty sidecar patches two known Dashboard 3.0.1 bugs. Reload the page if it appears blank after first load.
+**Blank plugin page in Dashboard** — this is expected on the first load due to a known Dashboard 3.0.1 bug patched by the included OpenResty sidecar. Reload the page.
 
-**`404 Route Not Found` on gateway** — no routes configured yet. Use the Dashboard or Admin API to add routes before sending traffic.
+**`404 Route Not Found` on gateway** — no routes are configured yet. Use the Dashboard to add routes before sending traffic.
 
-**etcd pod `Pending`** — check PVC binding: `kubectl get pvc` and available storage.
+**etcd pending** — storage provisioning may be slow. Allow 2–3 minutes after deployment.
 
 ## License
 

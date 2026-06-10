@@ -1,65 +1,39 @@
 # Nginx
 
-E2E's Kubernetes deployment of [Nginx](https://nginx.org) — the high-performance web server and reverse proxy. Use it to serve static files, act as a reverse proxy, or as a load balancer frontend.
+E2E's Kubernetes deployment of [Nginx](https://nginx.org) — the high-performance web server and reverse proxy for serving static files or proxying upstream services.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser → Service (NodePort :8080) → Nginx Pod → Static files / Proxy upstream
-```
+The E2E Marketplace provisions an Nginx instance and shows the access URL in the dashboard.
 
-## Requirements
+| Service | Port | Description |
+|---------|------|-------------|
+| HTTP | 8080 | Web server / proxy |
+| HTTPS | 8443 | HTTPS (when TLS is configured) |
 
-- Kubernetes cluster (0.5 vCPU, 64MB RAM minimum)
+## Configuration
 
-## Quick Start
+Fill in these values in the E2E Marketplace deployment form:
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
-
-helm install nginx blueprints/nginx \
-  --set service.type=NodePort
-```
-
-Using a values file:
-
-```bash
-cp blueprints/nginx/values.example.yaml my-values.yaml
-helm install nginx blueprints/nginx -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc nginx -o jsonpath='{.spec.ports[?(@.name=="http")].nodePort}')
-curl http://<node-ip>:$NODE_PORT
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `service.type` | `LoadBalancer` | Set `NodePort` for bare-metal / non-cloud clusters |
-| `serverBlock` | `""` | Custom Nginx server block configuration |
-| `replicaCount` | `1` | Number of Nginx replicas |
-| `resources.requests.cpu` | `10m` | CPU request |
-| `resources.requests.memory` | `128Mi` | Memory request |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `serverBlock` | No | Custom Nginx server block configuration. Leave empty for the default static file server. |
+| `replicaCount` | No | Number of Nginx replicas. Default: `1`. |
+| `resources.requests.cpu` | No | CPU request. Default: `10m`. |
+| `resources.requests.memory` | No | Memory request. Default: `128Mi`. |
 
 ## Ports
 
-| Port | Default Service Type | Notes |
-|------|---------------------|-------|
-| 8080 | LoadBalancer | HTTP — set `service.type=NodePort` on bare-metal clusters |
-| 8443 | LoadBalancer | HTTPS |
+| Port | Description |
+|------|-------------|
+| 8080 | HTTP |
+| 8443 | HTTPS |
 
 ## Troubleshooting
 
-**`ErrImagePull`** — Bitnami Nginx image pull issue; check connectivity to Docker Hub
+**502/503 when used as proxy** — verify the upstream service URL in your `serverBlock` is correct and reachable within the cluster.
 
-**502/503 when used as proxy** — verify upstream service is reachable from within the cluster
-
-**`LoadBalancer` stuck in `Pending`** — your cluster has no load balancer provisioner; set `service.type=NodePort`
+**Static files not showing** — ensure your `serverBlock` points to the correct document root and your files are present.
 
 ## License
 

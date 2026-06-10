@@ -1,71 +1,43 @@
 # Apache Kafka
 
-E2E's Kubernetes deployment of [Apache Kafka](https://kafka.apache.org) — the distributed event streaming platform. This chart deploys Kafka in KRaft mode (no ZooKeeper required) with persistent storage.
+E2E's Kubernetes deployment of [Apache Kafka](https://kafka.apache.org) — the distributed event streaming platform. Runs in KRaft mode (no ZooKeeper required) with persistent storage.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Producers → Service (NodePort :9092) → Kafka Broker Pod → PVC (8Gi)
-  Consumers ↗                            KRaft controller (embedded)
-```
+The E2E Marketplace provisions a Kafka broker and shows the bootstrap server endpoint in the dashboard.
 
-## Requirements
+| Service | Port | Protocol |
+|---------|------|----------|
+| Kafka Client | 9092 | Kafka protocol |
 
-- Kubernetes cluster (2 vCPU, 1GB RAM minimum)
-- StorageClass supporting `ReadWriteOnce` PVCs
+Connect producers and consumers using: `<deployment-host>:9092`
 
-## Quick Start
+## Configuration
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+Fill in these values in the E2E Marketplace deployment form:
 
-helm install kafka blueprints/kafka \
-  --set service.type=NodePort \
-  --set listeners.client.protocol=PLAINTEXT
-```
-
-Using a values file:
-
-```bash
-cp blueprints/kafka/values.example.yaml my-values.yaml
-helm install kafka blueprints/kafka -f my-values.yaml
-```
-
-## Connecting
-
-```bash
-NODE_PORT=$(kubectl get svc kafka -o jsonpath='{.spec.ports[?(@.name=="client")].nodePort}')
-kafka-console-producer.sh --bootstrap-server <node-ip>:$NODE_PORT --topic test
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `replicaCount` | `1` | Number of Kafka broker replicas |
-| `service.type` | `ClusterIP` | Set `NodePort` for external access |
-| `listeners.client.protocol` | `SASL_PLAINTEXT` | Set `PLAINTEXT` to disable auth for dev |
-| `sasl.client.users` | `[user]` | SASL usernames |
-| `sasl.client.passwords` | `""` | SASL passwords |
-| `persistence.size` | `8Gi` | PVC size per broker |
-| `persistence.storageClass` | `""` | Leave empty for cluster default |
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `listeners.client.protocol` | No | Set `PLAINTEXT` for dev/test (no auth). Default: `SASL_PLAINTEXT`. |
+| `sasl.client.passwords` | No | SASL password for client authentication. |
+| `persistence.size` | No | PVC size per broker. Default: `8Gi`. |
+| `replicaCount` | No | Number of Kafka broker replicas. Default: `1`. |
 
 ## Ports
 
-| Port | Default Type | Description |
-|------|-------------|-------------|
-| 9092 | ClusterIP | Client connections |
-| 9093 | ClusterIP | Inter-broker communication |
-| 9094 | ClusterIP | Controller |
+| Port | Description |
+|------|-------------|
+| 9092 | Client connections |
+| 9093 | Inter-broker communication (internal) |
+| 9094 | Controller (internal) |
 
 ## Troubleshooting
 
-**Producer can't connect** — check `service.type=NodePort` and advertised listeners are set to node IP
+**Producer can't connect** — verify your client is using the bootstrap server address shown in the marketplace dashboard.
 
-**Auth errors** — set `listeners.client.protocol=PLAINTEXT` for dev/test environments
+**Auth errors** — if you set `listeners.client.protocol=PLAINTEXT`, your client must not send SASL credentials. If using `SASL_PLAINTEXT`, provide the username and password set at deployment.
 
-**Slow startup** — Kafka initializes storage on first boot; allow 60-90 seconds
+**Slow startup** — Kafka initialises storage on first boot; allow 60–90 seconds.
 
 ## License
 

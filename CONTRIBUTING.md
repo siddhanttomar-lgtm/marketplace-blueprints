@@ -51,12 +51,12 @@ Every blueprint lives under `blueprints/{name}/` where `{name}` is lowercase and
 **Use the scaffolding script to create the folder skeleton automatically:**
 
 ```bash
-bash scripts/new-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
+bash scripts/create-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
 ```
 
 Example:
 ```bash
-bash scripts/new-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+bash scripts/create-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
 ```
 
 This creates `blueprints/mysql/` with all required files pre-filled. Then edit the `TODO` placeholders and continue with the steps below.
@@ -120,32 +120,39 @@ values.example.yaml
 
 **2.4 README.md format**
 
-Use this structure:
+Use this structure (customers deploy via the E2E Marketplace UI — no kubectl or helm commands):
 
 ```
 # {Display Name}
 
-One or two sentences — what it does and what it's useful for.
+One or two sentences — what it deploys and what it's useful for. Include upstream project link.
 
-## Quick Start
+## What You Get After Deployment
 
-helm install command (from source, not the Helm repo)
+Table of services, ports, and descriptions. Include the access URL format.
+
+## Before You Deploy — Getting Your Credentials  (only for blueprints that require external API keys)
+
+Step-by-step instructions to obtain each required credential from the external provider
+(e.g. Anthropic API key, Google OAuth credentials, Telegram bot token).
 
 ## Configuration
 
-Table of key values.yaml fields the user is likely to change.
+Table of parameters the user fills in on the E2E Marketplace deployment form.
+Columns: Parameter | Required | Description
 
 ## Ports
 
 Table of service ports — verify these against your actual service templates.
 
-## Connecting
-
-Exact command to connect after deploy (redis-cli, psql, etc.).
-
 ## Troubleshooting
 
-Common issues and how to fix them.
+Common issues and how to fix them. No kubectl or cluster commands — use observable symptoms
+and dashboard-visible signals only.
+
+## License
+
+Upstream project license.
 ```
 
 ---
@@ -212,17 +219,15 @@ Keep the table sorted by category, then alphabetically by name within each categ
 
 ## Step 6 — Commit and Push
 
-Before committing, update two files:
+Before committing, update the root README:
 
 1. **`README.md`** — add your blueprint to the Available Blueprints table
-2. **`CHANGELOG.md`** — add an entry under `[Unreleased]` with the blueprint name, version, and a one-line description
 
 Then stage and commit:
 
 ```bash
 git add blueprints/{name}/
 git add README.md
-git add CHANGELOG.md
 git commit -m "feat: add {name} blueprint v{appVersion}"
 git push origin blueprint/{name}
 ```

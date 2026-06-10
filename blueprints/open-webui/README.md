@@ -2,77 +2,46 @@
 
 E2E's Kubernetes deployment of [Open WebUI](https://github.com/open-webui/open-webui) bundled with [Ollama](https://ollama.com) — a private, self-hosted LLM workspace. Chat with local language models without sending data to external APIs.
 
-## Architecture
+## What You Get After Deployment
 
-```
-  Browser → Service (NodePort :8080) → Open WebUI Pod → PVC (2Gi)
-                                                       └→ Ollama Pod → PVC (20Gi models)
-```
+The E2E Marketplace provisions Open WebUI with an embedded Ollama model server and shows the access URL in the dashboard.
 
-## Prerequisites
+> **Note:** On first deployment, Ollama downloads the selected model weights (several GB). Full readiness takes 5–15 minutes. The UI will show a loading state until the model is ready.
 
-- Kubernetes cluster (2 vCPU, 4 GB RAM minimum; GPU optional)
-- StorageClass supporting `ReadWriteOnce` PVCs
-- Internet access from pods (to pull models on first use)
+| Service | Port | Description |
+|---------|------|-------------|
+| Open WebUI | 8080 | Chat interface |
 
-## Quick Start
+Open `http://<deployment-url>:8080` in your browser and log in with the admin email and password you set.
 
-```bash
-git clone https://github.com/e2enetworks-oss/marketplace-blueprints.git
-cd marketplace-blueprints
+## Configuration
 
-helm install open-webui blueprints/open-webui \
-  --set webui.adminEmail=admin@example.com \
-  --set webui.adminPassword=YOUR-PASSWORD
-```
+Fill in these values in the E2E Marketplace deployment form:
 
-Using a values file:
-
-```bash
-cp blueprints/open-webui/values.example.yaml my-values.yaml
-helm install open-webui blueprints/open-webui -f my-values.yaml
-```
-
-## Accessing
-
-```bash
-NODE_PORT=$(kubectl get svc open-webui -o jsonpath='{.spec.ports[0].nodePort}')
-# Open http://<node-ip>:$NODE_PORT in your browser
-# Login with the admin email and password you set
-```
-
-## Key Configuration
-
-| Value | Default | Description |
-|-------|---------|-------------|
-| `model` | `qwen2.5:0.5b` | Default model pulled on first startup |
-| `webui.adminEmail` | `""` | Admin account email. Required. |
-| `webui.adminPassword` | `""` | Admin account password. Required. |
-| `webui.storage.size` | `2Gi` | PVC size for Open WebUI data |
-| `ollama.storage.size` | `20Gi` | PVC size for Ollama models |
-| `ollama.gpu.enabled` | `false` | Enable GPU scheduling for Ollama |
-| `ollama.resources.requests.memory` | `2Gi` | Memory for Ollama (increase for larger models) |
-
-## Persistence
-
-Two PVCs are created:
-- **Open WebUI data** (`webui.storage.size`, default 2Gi) — chat history and settings
-- **Ollama models** (`ollama.storage.size`, default 20Gi) — downloaded model weights
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `webui.adminEmail` | Yes | Admin account email address. |
+| `webui.adminPassword` | Yes | Admin account password. |
+| `model` | No | Default model to pull on first startup. Default: `qwen2.5:0.5b`. |
+| `webui.storage.size` | No | PVC size for chat history and settings. Default: `2Gi`. |
+| `ollama.storage.size` | No | PVC size for downloaded model weights. Default: `20Gi`. Increase for larger models. |
+| `ollama.gpu.enabled` | No | Enable GPU scheduling for Ollama. Default: `false`. |
+| `ollama.resources.requests.memory` | No | Memory for Ollama. Default: `2Gi`. Increase for models larger than 3B parameters. |
 
 ## Ports
 
-| Port | Notes |
-|------|-------|
+| Port | Description |
+|------|-------------|
 | 8080 | Open WebUI web interface |
 | 11434 | Ollama API (internal) |
 
 ## Troubleshooting
 
-**Models not loading** — Ollama pulls models on first use; check logs: `kubectl logs deploy/open-webui-ollama`
+**Models not loading** — Ollama pulls the model on first use; this can take 5–15 minutes. Wait and refresh the page.
 
-**Out of memory** — increase `ollama.resources.limits.memory` for models larger than 3B parameters
+**Out of memory** — increase `ollama.resources.limits.memory`. Models over 3B parameters need more than the default 2Gi.
 
-**GPU not detected** — ensure `ollama.gpu.enabled: true` and your cluster has GPU nodes with the nvidia device plugin
+**GPU not detected** — ensure `ollama.gpu.enabled: true` and your cluster node has a GPU with the NVIDIA device plugin installed.
 
 ## License
 

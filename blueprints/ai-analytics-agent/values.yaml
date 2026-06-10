@@ -93,8 +93,8 @@ postgresql:
   auth:
     database: "umami"
     username: "umami"
-    password: "Umami@DB12345"
-    postgresPassword: "Postgres@Root123"
+    password: ""
+    postgresPassword: ""
   architecture: standalone
   primary:
     initdb:

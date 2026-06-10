@@ -239,10 +239,7 @@ EOF
 cat > "$DEST/templates/NOTES.txt" <<EOF
 $DISPLAY_NAME has been deployed.
 
-Get the NodePort:
-  kubectl get svc {{ .Release.Name }}
-
-Connect using the node IP and the NodePort shown above.
+Access the service via the URL shown in the E2E Marketplace dashboard.
 EOF
 
 # README.md
@@ -251,48 +248,42 @@ cat > "$DEST/README.md" <<EOF
 
 $DESCRIPTION
 
-## Quick Start
+## What You Get After Deployment
 
-\`\`\`bash
-cp blueprints/$NAME/values.example.yaml my-values.yaml
-# Edit my-values.yaml and set your password
+The E2E Marketplace provisions $DISPLAY_NAME and shows the access URL in the dashboard.
 
-helm install my-$NAME blueprints/$NAME -f my-values.yaml
-kubectl get pods
-\`\`\`
+| Service | Port | Description |
+|---------|------|-------------|
+| TODO    | TODO | TODO        |
 
-Wait until the pod shows \`Running\` and \`READY 1/1\`.
+Open \`http://<deployment-url>:<port>\` to access the interface.
 
 ## Configuration
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| \`auth.password\` | Login password | \`""\` (required) |
-| \`persistence.size\` | Storage size | \`8Gi\` |
-| \`service.type\` | Service type | \`NodePort\` |
-| \`resources.requests.cpu\` | CPU request | \`100m\` |
-| \`resources.requests.memory\` | Memory request | \`128Mi\` |
+Fill in these values in the E2E Marketplace deployment form:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| \`auth.password\` | Yes | Login password. |
+| \`persistence.size\` | No | Storage size. Default: \`8Gi\`. |
+| \`resources.requests.cpu\` | No | CPU request. Default: \`100m\`. |
+| \`resources.requests.memory\` | No | Memory request. Default: \`128Mi\`. |
 
 ## Ports
 
-| Service | Port |
-|---------|------|
-| TODO | TODO |
-
-## Connecting
-
-\`\`\`bash
-# TODO - add connection command
-kubectl get svc my-$NAME
-\`\`\`
+| Service | Port | Description |
+|---------|------|-------------|
+| TODO    | TODO | TODO        |
 
 ## Troubleshooting
 
-**Pod not starting:**
-\`\`\`bash
-kubectl describe pod -l app.kubernetes.io/name=$NAME
-kubectl logs -l app.kubernetes.io/name=$NAME
-\`\`\`
+**Service not accessible** — wait 1–2 minutes after deployment for the pod to fully start, then refresh the access URL from the dashboard.
+
+**Wrong password** — verify the password matches what was set in the deployment form.
+
+## License
+
+TODO
 EOF
 
 # Done
