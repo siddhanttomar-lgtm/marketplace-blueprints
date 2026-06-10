@@ -34,28 +34,46 @@ In OpenClaw Control UI → Models:
   • Local: point to an Ollama endpoint on your network
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HOW THE SDR PIPELINE WORKS
+HOW THE SDR PIPELINE WORKS (v2 — autonomous)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Lead messages your Telegram bot
+Two lanes run side by side:
+
+INTERACTIVE LANE (chat — same as v1)
+1. Lead messages your Telegram bot / web chat
 2. {{ .Values.openclaw.sdrName }} qualifies them with BANT questions
-3. At end of qualifying conversation, AI outputs:
+3. The agent auto-registers the lead into the CRM + autonomous engine
 
-   LEAD_SUMMARY_START
-   { "name": "...", "score": "hot|warm|cold", "next_action": "..." }
-   LEAD_SUMMARY_END
+AUTONOMOUS LANE (background — new in v2, no prompting needed)
+  • Scoring: each new lead is enriched + scored 0-100 on ICP fit
+  • Auto-outreach: leads scoring >= {{ .Values.outreach.leadScoreThreshold }} get a personalized first email
+  • Reply handling: inbound replies are polled every {{ .Values.outreach.replyPollMinutes }} min, intent-classified, answered
+  • Follow-ups: day {{ .Values.outreach.followUpDays }} sequence, auto-stops on reply
+  • Guardrail: {{- if .Values.outreach.autoSendEnabled }} AUTO-SEND ON — emails send without review {{- else }} AUTO-SEND OFF — drafts go to Telegram for your approval first {{- end }}
 
-4. Copy this JSON into Twenty CRM → People → New Person
-   (v2 will auto-sync via MCP bridge)
+  Flip autonomy with:  helm upgrade {{ .Release.Name }} b2b-sdr-agent --set outreach.autoSendEnabled=true
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TWENTY CRM QUICK START
+TURNING THE AUTONOMOUS LOOPS ON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-After creating your account in Twenty CRM:
-  1. Settings → API Keys → Generate key (save it — you'll need it for v2 MCP sync)
-  2. Create a Pipeline (Sales → Opportunities) for lead tracking
-  3. Add custom fields: bant_score, channel, budget_range
+SET AT LAUNCH (you already have these — no need to wait):
+  • Gmail: openclaw.gmailUser + openclaw.gmailAppPassword  (powers send + reply polling)
+  • LLM:   one of openclaw.anthropicApiKey / openaiApiKey / googleApiKey / groqApiKey
+
+  Gmail needs IMAP enabled (Gmail → Settings → Forwarding and POP/IMAP → Enable IMAP)
+  and a 16-char App Password (myaccount.google.com/apppasswords), NOT your login password.
+{{- if and .Values.openclaw.gmailUser .Values.openclaw.gmailAppPassword }}
+  ✓ Gmail creds detected — send + reply polling are armed.
+{{- else }}
+  ⚠ Gmail creds not set yet — reply polling + outbound stay idle until you add them.
+{{- end }}
+
+SET AFTER FIRST BOOT (Twenty mints this itself — it can't exist before the CRM runs):
+  • Twenty API key — needed so the engine can sync leads/deals into the CRM:
+      1. Open Twenty CRM → Settings → API & Webhooks → API keys → Generate
+      2. helm upgrade {{ .Release.Name }} b2b-sdr-agent --set twenty.apiKey=YOUR-TWENTY-KEY
+  • (Optional) Telegram approvals: --set telegram.approvalChatId=YOUR-CHAT-ID
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 IMPORTANT: UPDATE SERVER_URL FOR EMAIL LINKS

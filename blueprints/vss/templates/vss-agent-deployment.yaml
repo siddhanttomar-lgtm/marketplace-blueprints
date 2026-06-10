@@ -1,0 +1,353 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-vss-agent
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vss-agent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vss-agent
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: nvcr-pull-secret
+      initContainers:
+        - name: wait-for-cosmos-nim
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Cosmos VLM NIM to be ready..."
+              MAX_ATTEMPTS=120
+              for i in $(seq 1 $MAX_ATTEMPTS); do
+                if curl -sf "{{ include "vss.vlmBaseUrl" . }}/v1/health/ready" > /dev/null 2>&1; then
+                  echo "Cosmos NIM is ready!"
+                  exit 0
+                fi
+                echo "[$i/$MAX_ATTEMPTS] Cosmos NIM not ready, waiting 10s..."
+                sleep 10
+              done
+              echo "ERROR: Cosmos NIM failed to become ready within 20 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        - name: wait-for-nemotron-nim
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Nemotron LLM NIM to be ready..."
+              MAX_ATTEMPTS=120
+              for i in $(seq 1 $MAX_ATTEMPTS); do
+                if curl -sf "{{ include "vss.llmBaseUrl" . }}/v1/health/ready" > /dev/null 2>&1; then
+                  echo "Nemotron NIM is ready!"
+                  exit 0
+                fi
+                echo "[$i/$MAX_ATTEMPTS] Nemotron NIM not ready, waiting 10s..."
+                sleep 10
+              done
+              echo "ERROR: Nemotron NIM failed to become ready within 20 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        - name: wait-for-elasticsearch
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Elasticsearch cluster to be ready..."
+              for i in $(seq 1 60); do
+                if curl -sf "{{ include "vss.elasticsearchUrl" . }}/_cluster/health?wait_for_status=yellow&timeout=5s" > /dev/null 2>&1; then
+                  echo "Elasticsearch is ready!"
+                  exit 0
+                fi
+                echo "[$i/60] Elasticsearch not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ERROR: Elasticsearch not ready within 5 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        {{- if .Values.kafka.enabled }}
+        - name: wait-for-kafka
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Kafka to accept connections..."
+              for i in $(seq 1 60); do
+                if curl -sf --connect-timeout 3 "http://{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}" > /dev/null 2>&1 || \
+                   nc -z {{ include "vss.fullname" . }}-kafka {{ .Values.kafka.port }} 2>/dev/null; then
+                  echo "Kafka is ready!"
+                  exit 0
+                fi
+                echo "[$i/60] Kafka not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ERROR: Kafka not ready within 5 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        {{- end }}
+        {{- if .Values.rtviEmbed.enabled }}
+        - name: wait-for-rtvi-embed
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for RTVI Embed to be ready..."
+              for i in $(seq 1 60); do
+                if curl -sf "{{ include "vss.rtviEmbedUrl" . }}/v1/ready" > /dev/null 2>&1; then
+                  echo "RTVI Embed is ready!"
+                  exit 0
+                fi
+                echo "[$i/60] RTVI Embed not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ERROR: RTVI Embed not ready within 5 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        {{- end }}
+        {{- if .Values.rtviVlm.enabled }}
+        - name: wait-for-rtvi-vlm
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for RTVI VLM to be ready..."
+              for i in $(seq 1 60); do
+                if curl -sf "{{ include "vss.rtviVlmUrl" . }}/v1/health/ready" > /dev/null 2>&1; then
+                  echo "RTVI VLM is ready!"
+                  exit 0
+                fi
+                echo "[$i/60] RTVI VLM not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ERROR: RTVI VLM not ready within 5 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        {{- end }}
+        {{- if .Values.lvs.enabled }}
+        - name: wait-for-lvs
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for LVS backend to be ready..."
+              for i in $(seq 1 60); do
+                if curl -sf "{{ include "vss.lvsBackendUrl" . }}/v1/ready" > /dev/null 2>&1; then
+                  echo "LVS is ready!"
+                  exit 0
+                fi
+                echo "[$i/60] LVS not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ERROR: LVS not ready within 5 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+        {{- end }}
+      containers:
+        - name: vss-agent
+          image: {{ .Values.vssAgent.image }}
+          args:
+            - "serve"
+            - "--config_file"
+            - "/vss-agent/config.yml"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - {{ .Values.vssAgent.port | quote }}
+          env:
+            # Identity
+            - name: VSS_AGENT_VERSION
+              value: "3.1.0"
+            - name: VSS_AGENT_HOST
+              value: "0.0.0.0"
+            - name: VSS_AGENT_PORT
+              value: {{ .Values.vssAgent.port | quote }}
+            - name: VSS_AGENT_CONFIG_FILE
+              value: "/vss-agent/config.yml"
+            - name: VSS_ES_PORT
+              value: {{ .Values.elasticsearch.port | quote }}
+            - name: VSS_VA_MCP_PORT
+              value: {{ .Values.vssAgentMcp.port | quote }}
+            - name: VIDEO_ANALYSIS_MCP_URL
+              value: {{ include "vss.vssAgentMcpUrl" . | quote }}
+
+            # Network addresses — hostname-based in ingress mode, IP-based in NodePort mode
+            - name: HOST_IP
+              value: {{ if .Values.ingress.enabled }}{{ include "vss.agentHost" . | quote }}{{ else }}{{ .Values.externalIp | quote }}{{ end }}
+            - name: EXTERNAL_IP
+              value: {{ if .Values.ingress.enabled }}{{ include "vss.uiHost" . | quote }}{{ else }}{{ .Values.externalIp | quote }}{{ end }}
+
+            # NIMs always co-located on same machine/cluster — always local_shared
+            - name: LLM_MODE
+              value: "local_shared"
+            - name: VLM_MODE
+              value: "local_shared"
+            - name: LLM_MODEL_TYPE
+              value: "nim"
+            - name: VLM_MODEL_TYPE
+              value: "nim"
+            - name: LLM_NAME
+              value: {{ include "vss.llmModelName" . | quote }}
+            - name: VLM_NAME
+              value: {{ include "vss.vlmModelName" . | quote }}
+            - name: LLM_BASE_URL
+              value: {{ include "vss.llmBaseUrl" . | quote }}
+            - name: VLM_BASE_URL
+              value: {{ include "vss.vlmBaseUrl" . | quote }}
+
+            # NGC API key
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nvcr-api-secret
+                  key: NGC_API_KEY
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-ngc
+                  key: HF_TOKEN
+
+            # Evaluation harness — used by the built-in eval module (optional, dev-workflow)
+            - name: EVAL_LLM_JUDGE_NAME
+              value: {{ .Values.vssAgent.evalLlmJudgeName | default "" | quote }}
+            - name: EVAL_LLM_JUDGE_BASE_URL
+              value: {{ .Values.vssAgent.evalLlmJudgeBaseUrl | default "" | quote }}
+            - name: EVAL_DIR
+              value: {{ .Values.vssAgent.evalDir | default "/vss-agent/eval" | quote }}
+            - name: DATASET_DIR
+              value: {{ .Values.vssAgent.datasetDir | default "/vss-agent/datasets" | quote }}
+            - name: EVAL_OUTPUT_DIR
+              value: {{ .Values.vssAgent.evalOutputDir | default "/vss-agent/eval_output" | quote }}
+
+            # Object store — in-memory for v1 (no VST)
+            - name: VSS_AGENT_OBJECT_STORE_TYPE
+              value: "local_object_store"
+            - name: VSS_AGENT_EXTERNAL_URL
+              value: {{ include "vss.agentExternalUrl" . | quote }}
+            - name: VSS_AGENT_REPORTS_BASE_URL
+              value: {{ include "vss.agentExternalUrl" . | quote }}
+            - name: VSS_AGENT_TEMPLATE_PATH
+              value: {{ .Values.vssAgent.templatePath | default "/vss-agent/templates" | quote }}
+            - name: VSS_AGENT_TEMPLATE_NAME
+              value: {{ .Values.vssAgent.templateName | default "default" | quote }}
+
+            # VST — internal URL always via K8s ClusterIP DNS; external URL depends on mode
+            - name: VST_BASE_URL
+              value: {{ include "vss.vstIngressUrl" . | quote }}
+            - name: VST_INTERNAL_URL
+              value: {{ include "vss.vstIngressUrl" . | quote }}
+            - name: VST_EXTERNAL_URL
+              value: {{ if .Values.ingress.enabled }}{{ printf "http://%s" (include "vss.vstHost" .) | quote }}{{ else }}{{ printf "http://%s:%v" .Values.externalIp .Values.vst.ingress.nodePort | quote }}{{ end }}
+            - name: VST_MCP_URL
+              value: {{ include "vss.vstMcpUrl" . | quote }}
+
+            # Telemetry
+            - name: PHOENIX_ENDPOINT
+              value: {{ include "vss.phoenixEndpoint" . | quote }}
+
+            # RTVI services — empty string disables the feature in the agent config
+            - name: RTVI_VLM_BASE_URL
+              value: {{ include "vss.rtviVlmUrl" . | quote }}
+            - name: RTVI_EMBED_BASE_URL
+              value: {{ include "vss.rtviEmbedUrl" . | quote }}
+
+            # LVS — empty string disables lvs_video_understanding tool in the agent
+            - name: LVS_BACKEND_URL
+              value: {{ include "vss.lvsBackendUrl" . | quote }}
+
+            # MCP server URL — empty string when disabled
+            - name: VSS_VA_MCP_URL
+              value: {{ include "vss.vssAgentMcpUrl" . | quote }}
+
+            # Misc
+            - name: STREAM_MODE
+              value: "other"
+            - name: BP_PROFILE
+              value: {{ .Values.vssAgent.bpProfile | default "bp_developer_base" | quote }}
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - containerPort: {{ .Values.vssAgent.port }}
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.vssAgent.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.vssAgent.port }}
+            initialDelaySeconds: 240
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.vssAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: agent-config
+              mountPath: /vss-agent/config.yml
+              subPath: config.yml
+      volumes:
+        - name: agent-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-agent-config

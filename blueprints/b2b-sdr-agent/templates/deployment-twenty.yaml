@@ -18,6 +18,13 @@ spec:
         {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "twenty") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      # fsGroup matches the 'node' user (UID 1000) in twentycrm/twenty image so the
+      # PVC at /app/.local-storage is group-writable. Without this, signUpInNewWorkspace
+      # fails with EACCES when Twenty tries to mkdir the workspace storage dir.
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1000
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -25,8 +32,8 @@ spec:
       initContainers:
         # Wait for Postgres to be accepting connections before Twenty tries to migrate.
         - name: wait-for-postgres
-          image: busybox:1.37
-          imagePullPolicy: IfNotPresent
+          image: {{ .Values.busybox.image.repository }}:{{ .Values.busybox.image.tag }}
+          imagePullPolicy: Always
           command: ["sh", "-c"]
           args:
             - |
@@ -68,13 +75,13 @@ spec:
             - name: SERVER_URL
               value: {{ .Values.twenty.serverUrl | quote }}
             {{- else }}
-            # Fallback to internal service URL — external email/webhook links won't work
-            # until SERVER_URL is updated to the actual public hostname post-deploy.
             - name: SERVER_URL
               value: {{ include "b2b-sdr.twentyInternalUrl" . | quote }}
             {{- end }}
-            - name: ENABLE_DB_MIGRATIONS_ON_STARTUP
-              value: "true"
+            # Do NOT set ENABLE_DB_MIGRATIONS_ON_STARTUP — in Twenty v2.x that flag tells
+            # the server to run migrations and then EXIT (migration-only job mode). The
+            # entrypoint.sh handles migrations correctly via DISABLE_DB_MIGRATIONS (unset
+            # here = run migrations). We let entrypoint.sh do its job and start the server.
             - name: IS_CONFIG_VARIABLES_IN_DB_ENABLED
               value: "false"
             - name: STORAGE_TYPE
@@ -87,14 +94,16 @@ spec:
             httpGet:
               path: /healthz
               port: 3000
-            initialDelaySeconds: 60
+            # Twenty pulls 277MB image + runs migrations on first boot (~3min total).
+            # Start probing at 180s; with failureThreshold=24 (240s more) we cover up to 7min total.
+            initialDelaySeconds: 180
             periodSeconds: 10
-            failureThreshold: 18
+            failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /healthz
               port: 3000
-            initialDelaySeconds: 300
+            initialDelaySeconds: 480
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
@@ -126,6 +135,8 @@ spec:
         {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "twenty-worker") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: registry-pull-secret
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -133,8 +144,8 @@ spec:
       initContainers:
         # Wait for Twenty server to pass /healthz before starting the worker.
         - name: wait-for-twenty
-          image: busybox:1.37
-          imagePullPolicy: IfNotPresent
+          image: {{ .Values.busybox.image.repository }}:{{ .Values.busybox.image.tag }}
+          imagePullPolicy: Always
           command: ["sh", "-c"]
           args:
             - |

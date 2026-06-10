@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-blackbox
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: blackbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: blackbox
+  template:
+    metadata:
+      labels:
+        {{- include "pb.labels" . | nindent 8 }}
+        app.kubernetes.io/component: blackbox
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: blackbox-exporter
+          image: "{{ .Values.blackbox.image.repository }}:{{ .Values.blackbox.image.tag }}"
+          imagePullPolicy: {{ .Values.blackbox.image.pullPolicy }}
+          args:
+            - "--config.file=/config/blackbox.yml"
+          ports:
+            - containerPort: 9115
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9115
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9115
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.blackbox.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-prometheus-config

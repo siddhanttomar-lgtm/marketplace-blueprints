@@ -1,0 +1,16 @@
+{{- if .Values.kafkaUi.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: kafka-ui-{{ .Release.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka-ui-{{ .Release.Name }}
+  ports:
+    - port: 80
+      targetPort: 8080
+{{- end }}

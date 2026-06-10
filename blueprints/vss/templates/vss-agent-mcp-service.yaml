@@ -1,0 +1,19 @@
+{{- if .Values.vssAgentMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-vss-agent-mcp
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-agent-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vss-agent-mcp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http-mcp
+      port: {{ .Values.vssAgentMcp.port }}
+      targetPort: {{ .Values.vssAgentMcp.port }}
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,34 @@
+AI Project Manager is deploying. It takes ~3-5 minutes for all services to come up.
+
+Services starting:
+  1. PostgreSQL       — Plane's database
+  2. Redis            — Celery task queue
+  3. Plane Migrator   — runs DB migrations + creates AI agent API token (Job)
+  4. Plane API        — REST backend (port 8000, internal)
+  5. Plane Worker     — async task processor
+  6. Plane Beat       — Celery scheduler
+  7. OpenClaw         — AI chat gateway (your primary URL)
+
+Once running, open the URL shown in the deployment dashboard.
+Enter your Gateway Token when prompted.
+Select "AI Project Manager" agent and start chatting.
+
+First steps after deployment:
+  1. Log into Plane at: http://{{ .Release.Name }}-api:8000 (port-forward if needed)
+  2. Create your first workspace using slug: {{ .Values.plane.workspaceSlug }}
+     IMPORTANT: The workspace slug MUST match the value you set in deployment variables.
+  3. Create a project in Plane
+  4. Ask the agent: "list my projects" to verify the connection is working
+
+Example commands to try:
+  "What projects do I have?"
+  "Create an issue: fix the login bug, high priority, assign to alice@company.com"
+  "Move issue PROJ-5 to In Progress"
+  "Show me today's standup for my active project"
+  "Create Sprint 1 starting June 1st and ending June 14th"
+
+Slack standup (optional):
+  If you set a Slack bot token, ask: "Post today's standup to #engineering"
+
+Secret key reminder:
+  Your Plane secret key must be 50+ characters. A short key will cause Django errors.

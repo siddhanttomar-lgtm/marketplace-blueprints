@@ -20,14 +20,15 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   storageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   namespaceOverride: ""
   ## Compatibility adaptations for Kubernetes platforms
   ##
@@ -141,9 +142,9 @@ diagnosticMode:
 ## @param image.debug Set to true if you would like to see extra information on logs
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/mongodb
-  tag: latest
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/mongodb
+  tag: 8.0.12-debian-12-r0
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -267,9 +268,9 @@ tls:
   ## @param tls.extraDnsNames Add extra dns names to the CA, can solve x509 auth issue for pod clients
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/nginx
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/nginx
+    tag: 1.29.0-debian-12-r6
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -866,9 +867,9 @@ externalAccess:
     ## @param externalAccess.autoDiscovery.image.pullSecrets Init container auto-discovery image pull secrets
     ##
     image:
-      registry: registry-1.docker.io
-      repository: bitnami/kubectl
-      tag: latest
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/kubectl
+      tag: 1.31.4-debian-12-r1
       digest: ""
       ## Specify a imagePullPolicy
       ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -919,9 +920,9 @@ externalAccess:
     ## @param externalAccess.dnsCheck.image.pullSecrets Init container dns-check image pull secrets
     ##
     image:
-      registry: registry-1.docker.io
-      repository: bitnami/os-shell
-      tag: latest
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/os-shell
+      tag: 12-debian-12-r65
       digest: ""
       ## Specify a imagePullPolicy
       ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1648,9 +1649,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/os-shell
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -2460,9 +2461,9 @@ metrics:
   ## @param metrics.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/mongodb-exporter
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/mongodb-exporter
+    tag: 0.47.1-debian-12-r2
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -2727,8 +2728,8 @@ mcp:
   ## @param mcp.image.pullSecrets MCP MongoDB image pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/mcp-mongodb
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/mcp-mongodb
     tag: latest
     digest: ""
     pullPolicy: IfNotPresent
@@ -3369,9 +3370,9 @@ mcp:
     ## @param mcp.auth.image.pullSecrets kube-rbac-proxy image pull secrets
     ##
     image:
-      registry: registry-1.docker.io
-      repository: bitnami/kube-rbac-proxy
-      tag: latest
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/kube-rbac-proxy
+      tag: 0.21.0-debian-12-r0
       digest: ""
       pullPolicy: IfNotPresent
       pullSecrets: []

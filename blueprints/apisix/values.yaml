@@ -1,0 +1,63 @@
+apisix:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/apisix
+    tag: "3.16.0-debian"
+    pullPolicy: IfNotPresent
+  adminCredentials:
+    admin: "edd1c9f034335f136f87ad84b625c8f1"
+    viewer: "4054f7cf07e344346cd3f287985e76a2"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+etcd:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/etcd
+    tag: "3.5.21-debian-12-r5"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+dashboard:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/apisix-dashboard
+    tag: "3.0.1-alpine"
+    pullPolicy: IfNotPresent
+  adminUsername: "admin"
+  adminPassword: "Admin@12345"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Lightweight openresty sidecar that fixes two dashboard 3.0.1 bugs:
+#   1. /apisix/admin/get_key — missing from binary, falls through to SPA HTML
+#      → React JSON.parse() crash → blank plugin page
+#   2. /apisix/admin/plugins/list — same fall-through problem
+# Proxy mocks (1) and proxies (2) directly to APISIX admin API with wrap.
+proxy:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/openresty
+    tag: "1.25.3.2-alpine"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi

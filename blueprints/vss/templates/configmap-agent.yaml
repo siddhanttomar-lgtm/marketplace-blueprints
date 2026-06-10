@@ -1,0 +1,279 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-agent-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+data:
+  config.yml: |
+    general:
+      use_uvloop: true
+      front_end:
+        _type: fastapi
+        runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
+        object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+        endpoints:
+        - path: /api/v1/videos
+          method: POST
+          description: Generate VST upload URL
+          function_name: video_upload_url
+        cors:
+          allow_origins: ['*']
+          allow_methods: ['*']
+          allow_headers: ['*']
+          allow_credentials: false
+{{- if .Values.rtviEmbed.enabled }}
+        streaming_ingest:
+          # K8s ClusterIP DNS — agent reads this config block and skips the
+          # HOST_IP+RTVI_EMBED_PORT fallback, enabling internal cluster routing.
+          rtvi_embed_base_url: "http://{{ include "vss.fullname" . }}-rtvi-embed:{{ .Values.rtviEmbed.port }}"
+          rtvi_embed_model: {{ .Values.rtviEmbed.embedModelName | default "cosmos-embed1-448p" | quote }}
+          rtvi_embed_chunk_duration: {{ .Values.rtviEmbed.chunkDuration | default 5 }}
+          vst_internal_url: "${VST_INTERNAL_URL}"
+{{- end }}
+
+      telemetry:
+        tracing:
+          phoenix:
+            _type: phoenix
+            endpoint: ${PHOENIX_ENDPOINT}/v1/traces
+            project: DEV-vss-agent-${VSS_AGENT_VERSION}
+
+    object_stores:
+      local_object_store:
+        _type: in_memory
+
+    functions:
+      video_upload_url:
+        _type: video_upload_url
+        vst_external_url: ${VST_EXTERNAL_URL}
+        agent_base_url: ${VSS_AGENT_EXTERNAL_URL}
+
+      video_understanding:
+        _type: video_understanding
+        vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
+        max_frames: 30
+        max_fps: 2
+        min_pixels: 3136
+        max_pixels: 8388608
+        reasoning: false
+        video_url_tool: vst_video_clip
+        time_format: offset
+        vlm_mode: ${VLM_MODE}
+        internal_ip: ${HOST_IP}
+        external_ip: ${EXTERNAL_IP}
+        vst_internal_url: ${VST_INTERNAL_URL}
+        use_base64: true
+        system_prompt: |
+          You are a monitoring system analyzing video footage.
+          Your task is to describe the events in the video in detail or answer the user's question about the video.
+            IMPORTANT:
+            - You must respond only in English and in plain text.
+            - You must respond only in the format specified in the OUTPUT REQUIREMENTS section.
+            - Timestamp must be in pts format, seconds since the start of the video.
+            - Always provide a direct answer to the question asked.
+            - Never return an empty response. If you cannot find what the user is asking about, acknowledge it to the user.
+
+      vst_video_clip:
+        _type: vst.video_clip
+        vst_internal_url: ${VST_INTERNAL_URL}
+        vst_external_url: ${VST_EXTERNAL_URL}
+
+      vst_snapshot:
+        _type: vst.snapshot
+        vst_internal_url: ${VST_INTERNAL_URL}
+        vst_external_url: ${VST_EXTERNAL_URL}
+
+      vst_video_list:
+        _type: vst.video_list
+        vst_internal_url: ${VST_INTERNAL_URL}
+
+      video_report_gen:
+        _type: video_report_gen
+        object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+        base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+        video_understanding_tool: video_understanding
+        video_url_tool: vst_video_clip
+        picture_url_tool: vst_snapshot
+        vst_internal_url: ${VST_INTERNAL_URL}
+        vst_external_url: ${VST_EXTERNAL_URL}
+        vlm_prompt: |
+          Describe in detail what is happening in this video,
+          including all visible people, vehicles, equipments, objects,
+          actions, and environmental conditions.
+          OUTPUT REQUIREMENTS:
+          [timestamp-timestamp] Description of what is happening.
+          EXAMPLE:
+          [0.0s-4.0s] <description of the first event>
+          [4.0s-12.0s] <description of the second event>
+        hitl_enabled: true
+        hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm
+        hitl_vlm_prompt_template: |
+          **VLM Prompt for Report Generation**
+
+          **OPTIONS:**
+
+          - Press Submit (empty) to approve and generate report
+          - Type a new prompt or edit the current one
+          - Type /generate <description> to have AI create a prompt
+          - Type /refine <instructions> to modify the current prompt
+          - Type /cancel to cancel report generation
+
+          Enter your choice or press Submit to keep current value:
+        hitl_generate_system_prompt: |
+          You are a prompt engineer specializing in video analysis.
+          Create a clear, detailed prompt for a Vision Language Model (VLM)
+          that will analyze video footage and generate a report.
+          Output ONLY the VLM prompt, no explanations.
+        hitl_refine_system_prompt: |
+          You are a prompt engineer specializing in video analysis.
+          Modify the existing VLM prompt based on the user's instructions.
+          Current prompt to modify: {current_prompt}
+          Output ONLY the modified prompt, no explanations.
+{{- if .Values.lvs.enabled }}
+        # LVS integration: use LVS for long-video summarization instead of
+        # direct frame-by-frame VLM calls. LVS handles chunking, RAG indexing,
+        # and multi-query retrieval internally.
+        lvs_video_understanding_tool: lvs_video_understanding
+{{- end }}
+
+      report_agent:
+        _type: report_agent
+        log_level: INFO
+        video_report_tool: video_report_gen
+{{- if .Values.lvs.enabled }}
+
+      # ── Long Video Summarization ─────────────────────────────────────────────
+      # vst_video_duration: helper tool to get exact video duration before chunking
+      vst_video_duration:
+        _type: vst.duration
+        vst_internal_url: ${VST_INTERNAL_URL}
+
+      # lvs_video_understanding: RAG-based analysis for extended recordings.
+      # Called by video_report_gen (not directly from workflow) — route is:
+      #   report_agent → video_report_gen → lvs_video_understanding → LVS backend
+      lvs_video_understanding:
+        _type: lvs_video_understanding
+        lvs_backend_url: ${LVS_BACKEND_URL}
+        chunk_duration: 10
+        num_frames_per_chunk: 20
+{{- end }}
+{{- if .Values.rtviVlm.enabled }}
+
+      # ── Real-time VLM alert management ──────────────────────────────────────
+      # rtvi_vlm_alert: configure/start/stop live stream monitoring on rtvi-vlm
+      rtvi_vlm_alert:
+        _type: rtvi_vlm_alert
+        rtvi_vlm_base_url: ${RTVI_VLM_BASE_URL}
+        vst_internal_url: ${VST_INTERNAL_URL}
+        default_model: ${VLM_NAME}
+        default_chunk_duration: 20
+        default_fps: 1
+        timeout: 60
+
+      # rtvi_prompt_gen: LLM-based prompt generator for alert monitoring queries
+      rtvi_prompt_gen:
+        _type: prompt_gen
+        llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+        prompt: |
+          You are a prompt generator for video monitoring alerts.
+          User wants to monitor: {user_query}
+          Intent: {user_intent}
+          Generate a Yes/No detection question and a system role.
+          Example for "warehouse anomalies":
+          prompt: Detect for a box being dropped. Answer in Yes or No
+          system_prompt: You are a helpful assistant.
+          Now generate for the user request above. Output format:
+          prompt: [your detection question]
+          system_prompt: You are a helpful assistant.
+{{- end }}
+
+    llms:
+      nim_llm:
+        _type: nim
+        model_name: ${LLM_NAME}
+        base_url: ${LLM_BASE_URL}/v1
+        max_tokens: 4096
+        temperature: 0.0
+
+      openai_llm:
+        _type: openai
+        model_name: ${LLM_NAME}
+        base_url: ${LLM_BASE_URL}/v1
+        max_tokens: 4096
+        temperature: 0.0
+
+      nim_vlm:
+        _type: nim
+        model_name: ${VLM_NAME}
+        base_url: ${VLM_BASE_URL}/v1
+        temperature: 0.0
+        max_tokens: 4096
+
+      openai_vlm:
+        _type: openai
+        model_name: ${VLM_NAME}
+        temperature: 0.0
+        max_tokens: 4096
+
+      eval_llm_judge:
+        _type: nim
+        model_name: ${EVAL_LLM_JUDGE_NAME:-nvidia/nvidia-nemotron-nano-9b-v2}
+        base_url: ${LLM_BASE_URL}/v1
+        max_tokens: 4096
+        temperature: 0.0
+
+    workflow:
+      _type: top_agent
+      llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+      log_level: INFO
+      max_iterations: 50
+      llm_reasoning: false
+      planning_enabled: true
+      tool_names:
+      - video_understanding
+      - vst_video_clip
+      - vst_snapshot
+      - vst_video_list
+{{- if .Values.rtviVlm.enabled }}
+      - rtvi_vlm_alert
+      - rtvi_prompt_gen
+{{- end }}
+      subagent_names:
+      - report_agent
+      prompt: |
+        You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.
+        ## Routing Rules:
+          **vst_video_list**
+          - Videos can be added/removed from the backend system. dont rely on previous conversations for questions about available videos.
+          - Examples: "What videos are available?", "List all available videos" "list sensors"
+          **report_agent**
+          - Only call report_agent when user mentions "report" in the question.
+          - Examples: "Generate a report for, "Create an analysis report", I need a safety report for this video"
+          **video_understanding** - For any question about video content.
+          - Examples: "what happens in the video?", "Was there any breach of safety protocol?"
+          **vst_video_clip** - For queries asking for showing videos.
+          **vst_snapshot** - For queries asking for a snapshot of a video at a specific timestamp.
+        ## Context: Use user's previous uploaded video if user doesn't specify the video name.
+      tool_call_prompt: |
+        TOOL CALL RULES:
+        - ALWAYS include ALL required parameters when calling tools
+        - If a tool call fails with a validation error, RETRY IMMEDIATELY with correct parameters.
+        - Error Handling: if a tool fails more than 3 times, return a summarized error message.
+      response_format_prompt: |
+          - Do not include phrases like "I should", "Let me", "The user".
+          - Convert json to markdown format.
+          - Wrap urls in html tags. CRITICAL: ONLY do this when a url is EXACTLY the one returned from a tool call.
+            <video src="video_url" alt="Video Name">Video Name</video>
+            <image src="image_url" alt="Image Name">Image Name</image>
+      postprocessing:
+        enabled: true
+        validation_order:
+        - [url_validator]
+        validators:
+          url_validator:
+            internal_ip: ${HOST_IP}
+            timeout: 10.0
+            feedback_template: |
+              The following URLs are not accessible: {issues}
+              You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.

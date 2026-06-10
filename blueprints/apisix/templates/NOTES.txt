@@ -1,0 +1,31 @@
+╔══════════════════════════════════════════════════════════════════╗
+  Apache APISIX — All-in-One Pod Deployed
+╚══════════════════════════════════════════════════════════════════╝
+
+  API GATEWAY  (public — your traffic proxy endpoint)
+  ────────────────────────────────────────────────────
+  URL : shown as the deployment URL in the E2E Marketplace UI
+        e.g. http://{{ .Release.Name }}.<cluster-ip>.sslip.io
+
+  Test the gateway is live:
+    curl http://<gateway-url>/
+    → {"error_msg":"404 Route Not Found"}  ← gateway running, no routes yet
+
+  DASHBOARD  (public — configure routes, upstreams, plugins)
+  ────────────────────────────────────────────────────────────
+  URL : http://{{ .Release.Name }}-dash.172-16-230-151.sslip.io
+  Login: admin / {{ .Values.dashboard.adminPassword }}
+  !! Change the password after first login !!
+
+  ADMIN API  (internal — ClusterIP only, never expose publicly)
+  ─────────────────────────────────────────────────────────────
+  Internal service: {{ .Release.Name }}:9180
+  X-API-KEY: {{ .Values.apisix.adminCredentials.admin }}
+
+  ⚠  SECURITY CHECKLIST
+  ──────────────────────
+  [ ] Change dashboard admin password after first login
+  [ ] Replace default Admin API keys (apisix.adminCredentials.*)
+  [ ] Configure at least one Route before sending production traffic
+
+  Docs: https://apisix.apache.org/docs/apisix/getting-started/

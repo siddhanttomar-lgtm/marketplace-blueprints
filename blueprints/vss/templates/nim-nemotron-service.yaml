@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-nim-nemotron
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nim-nemotron
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nim-nemotron
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.nim.nemotron.port }}
+      targetPort: {{ .Values.nim.nemotron.port }}

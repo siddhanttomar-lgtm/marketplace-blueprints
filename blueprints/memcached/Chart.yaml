@@ -20,14 +20,16 @@ dependencies:
   tags:
   - bitnami-common
   version: 2.37.0
-description: "Memcached is an high-performance, distributed memory object caching system, generic in nature, but intended for use in speeding up dynamic web applications by alleviating database load."
+description: Memcached is an high-performance, distributed memory object caching system,
+  generic in nature, but intended for use in speeding up dynamic web applications
+  by alleviating database load.
 home: https://bitnami.com
 icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/memcached/img/memcached-stack-220x234.png
 keywords:
 - memcached
 - cache
 maintainers:
-- name: "Broadcom, Inc. All Rights Reserved."
+- name: Broadcom, Inc. All Rights Reserved.
   url: https://github.com/bitnami/charts
 name: memcached
 sources:

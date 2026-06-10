@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prom.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "prom.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      securityContext:
+        fsGroup: 65534
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: prometheus
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--config.file=/config/prometheus.yml"
+            - "--storage.tsdb.path=/data"
+            - "--storage.tsdb.retention.size={{ .Values.storage.size | replace "Gi" "GB" | replace "Mi" "MB" }}"
+            - "--web.enable-lifecycle"
+            - "--web.enable-admin-api"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+          ports:
+            - containerPort: 9090
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+
+        - name: ingress-patcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              INGRESS="ingress-{{ .Release.Name }}"
+              NS="{{ .Release.Namespace }}"
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              BASE="https://kubernetes.default.svc/apis/networking.k8s.io/v1/namespaces/${NS}/ingresses/${INGRESS}"
+              for i in $(seq 1 24); do
+                CODE=$(wget --quiet --server-response --spider \
+                  --header="Authorization: Bearer ${TOKEN}" \
+                  --ca-certificate="${CA}" \
+                  "${BASE}" 2>&1 | grep "HTTP/" | awk '{print $2}' | tail -1)
+                if [ "$CODE" = "200" ]; then
+                  wget --quiet --output-document=- \
+                    --method=PATCH \
+                    --header="Authorization: Bearer ${TOKEN}" \
+                    --header="Content-Type: application/merge-patch+json" \
+                    --ca-certificate="${CA}" \
+                    --body-data='{"metadata":{"annotations":{"haproxy-ingress.github.io/timeout-tunnel":"1h"}}}' \
+                    "${BASE}" > /dev/null 2>&1
+                  echo "[ingress-patcher] patched ${INGRESS}"
+                  break
+                fi
+                echo "[ingress-patcher] waiting (${i}/24)..."
+                sleep 5
+              done
+              sleep infinity
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-data

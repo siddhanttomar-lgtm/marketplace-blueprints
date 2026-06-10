@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sensor
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sensor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vst-sensor
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vst-sensor
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vst-sensor
+    spec:
+      imagePullSecrets:
+        - name: nvcr-pull-secret
+      {{- if .Values.vst.sensor.requireGpu }}
+      runtimeClassName: nvidia
+      {{- end }}
+      containers:
+        - name: vst-sensor
+          image: {{ .Values.vst.sensor.image }}
+          command:
+            - /bin/bash
+            - -c
+            - exec /home/vst/vst_release/launch_vst
+          env:
+            - name: ADAPTOR
+              value: {{ .Values.vst.sensor.adaptor | quote }}
+            - name: NEED_RECORDING
+              value: "false"
+            - name: NEED_RTSPSERVER
+              value: "false"
+            - name: NEED_STORAGE
+              value: "false"
+            - name: NEED_STREAM_MONITORING
+              value: "true"
+            - name: HTTP_PORT
+              value: {{ .Values.vst.sensor.port | quote }}
+            {{- if .Values.vst.sensor.requireGpu }}
+            - name: GPU_DEVICES
+              value: {{ .Values.gpu.deviceIds | quote }}
+            - name: CUDA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.deviceIds | quote }}
+            {{- end }}
+            - name: CENTRALIZE_DB_NAME
+              value: {{ .Values.vst.postgres.database | quote }}
+            - name: CENTRALIZE_DB_USERNAME
+              value: {{ .Values.vst.postgres.user | quote }}
+            - name: PGHOST
+              value: {{ include "vss.fullname" . }}-vst-postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: {{ .Values.vst.postgres.user | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.vst.postgres.database | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-vst-postgres
+                  key: POSTGRES_PASSWORD
+            - name: STREAM_PROCESSOR_MODULE_ENDPOINT
+              {{- if .Values.vst.envoy.enabled }}
+              value: "http://{{ include "vss.fullname" . }}-vst-envoy:{{ .Values.vst.envoy.port }}"
+              {{- else }}
+              value: "http://{{ include "vss.fullname" . }}-vst-streamprocessing:{{ .Values.vst.streamprocessing.port }}"
+              {{- end }}
+            - name: REDIS_SVC_SERVICE_HOST
+              value: {{ include "vss.redisHost" . | quote }}
+          ports:
+            - containerPort: {{ .Values.vst.sensor.port }}
+              name: http
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  exec 3<>/dev/tcp/127.0.0.1/{{ .Values.vst.sensor.port }} || exit 1
+                  pg_isready -h {{ include "vss.fullname" . }}-vst-postgres -p {{ .Values.vst.postgres.port }} -U {{ .Values.vst.postgres.user }} || exit 1
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - "exec 3<>/dev/tcp/127.0.0.1/{{ .Values.vst.sensor.port }}"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+          resources:
+            requests:
+              {{- toYaml .Values.vst.sensor.resources.requests | nindent 14 }}
+            limits:
+              {{- toYaml .Values.vst.sensor.resources.limits | nindent 14 }}
+              {{- if .Values.vst.sensor.requireGpu }}
+              nvidia.com/gpu: "1"
+              {{- end }}
+          volumeMounts:
+            - name: sensor-config
+              mountPath: /home/vst/vst_release/configs/vst_config.json
+              subPath: vst_config.json
+            - name: sensor-data
+              mountPath: /home/vst/vst_release/vst_data
+      volumes:
+        - name: sensor-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-vst-sensor-config
+        - name: sensor-data
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-vst-sensor-data

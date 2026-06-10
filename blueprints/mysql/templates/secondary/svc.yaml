@@ -10,7 +10,6 @@ metadata:
   name: {{ include "mysql.secondary.fullname" . }}
   namespace: {{ include "common.names.namespace" . | quote }}
   labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
-    app.kubernetes.io/part-of: mysql
     app.kubernetes.io/component: secondary
   {{- if or .Values.secondary.service.annotations .Values.commonAnnotations }}
   {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.secondary.service.annotations .Values.commonAnnotations ) "context" . ) }}
@@ -36,9 +35,6 @@ spec:
   {{- if and (eq .Values.secondary.service.type "LoadBalancer") (not (empty .Values.secondary.service.loadBalancerIP)) }}
   loadBalancerIP: {{ .Values.secondary.service.loadBalancerIP }}
   {{- end }}
-  {{- if .Values.secondary.service.externalIPs }}
-  externalIPs: {{- include "common.tplvalues.render" (dict "value" .Values.secondary.service.externalIPs "context" $) | nindent 4 }}
-  {{- end }}  
   ports:
     - name: mysql
       port: {{ .Values.secondary.service.ports.mysql }}

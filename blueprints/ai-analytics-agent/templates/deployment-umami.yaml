@@ -16,9 +16,11 @@ spec:
       labels:
         {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami") | nindent 8 }}
     spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
       initContainers:
         - name: wait-for-postgres
-          image: busybox:1.37
+          image: registry.e2enetworks.net/marketplace-blueprint/busybox:1.37
           command: ['sh', '-c', 'until nc -z {{ include "aaa.postgresqlHost" . }} 5432; do echo "[wait-for-postgres] waiting..."; sleep 3; done; echo "[wait-for-postgres] ready"']
           resources:
             requests:

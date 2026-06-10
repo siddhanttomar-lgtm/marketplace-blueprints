@@ -20,7 +20,9 @@ dependencies:
   tags:
   - bitnami-common
   version: 2.37.0
-description: "NGINX Open Source is a web server that can be also used as a reverse proxy, load balancer, and HTTP cache. Recommended for high-demanding sites due to its ability to provide faster content."
+description: NGINX Open Source is a web server that can be also used as a reverse
+  proxy, load balancer, and HTTP cache. Recommended for high-demanding sites due to
+  its ability to provide faster content.
 home: https://bitnami.com
 icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/nginx/img/nginx-stack-220x234.png
 keywords:
@@ -30,7 +32,7 @@ keywords:
 - www
 - reverse proxy
 maintainers:
-- name: "Broadcom, Inc. All Rights Reserved."
+- name: Broadcom, Inc. All Rights Reserved.
   url: https://github.com/bitnami/charts
 name: nginx
 sources:

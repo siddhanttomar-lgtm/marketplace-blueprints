@@ -7,9 +7,14 @@ metadata:
   annotations:
     "helm.sh/hook": test
 spec:
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   containers:
     - name: wget
-      image: busybox:1.36
+      image: registry.e2enetworks.net/marketplace-blueprint/busybox:1.36
+      imagePullPolicy: IfNotPresent
       command: ['wget', '--spider', '-q', 'http://{{ include "open-webui.webuiHost" . }}:8080/']
       resources:
         limits:

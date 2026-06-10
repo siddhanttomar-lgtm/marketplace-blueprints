@@ -19,14 +19,15 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   storageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   ## Compatibility adaptations for Kubernetes platforms
   ##
   compatibility:
@@ -80,9 +81,9 @@ usePasswordFiles: true
 ## @param image.debug Specify if debug logs should be enabled
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/tomcat
-  tag: latest
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/tomcat
+  tag: 11.0.18-debian-12-r4
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -126,13 +127,20 @@ secretKeys:
 ## @param tomcatAllowRemoteManagement Enable remote access to management interface
 ## ref: https://github.com/bitnami/charts/tree/main/bitnami/tomcat#configuration
 ##
-tomcatAllowRemoteManagement: 0
+tomcatAllowRemoteManagement: 1
 ## @param catalinaOpts Java runtime option used by tomcat JVM
 ##
 catalinaOpts: ""
 ## @param command Override default container command (useful when using custom images)
 ##
-command: []
+command:
+  - /bin/bash
+  - -ec
+  - |
+    cp -nr /opt/bitnami/tomcat/conf.default/. /opt/bitnami/tomcat/conf/
+    /opt/bitnami/scripts/tomcat/setup.sh
+    sed -i 's/roles="manager-gui,admin-gui"/roles="manager-gui,admin-gui,manager-script"/g' /opt/bitnami/tomcat/conf/tomcat-users.xml
+    exec /opt/bitnami/scripts/tomcat/run.sh
 ## @param args Override default container args (useful when using custom images)
 ##
 args: []
@@ -761,9 +769,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/os-shell
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -823,9 +831,9 @@ metrics:
     ## @param metrics.jmx.image.pullSecrets Specify docker-registry secret names as an array
     ##
     image:
-      registry: registry-1.docker.io
-      repository: bitnami/jmx-exporter
-      tag: latest
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/jmx-exporter
+      tag: 1.5.0-debian-12-r7
       digest: ""
       ## Specify a imagePullPolicy
       ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images

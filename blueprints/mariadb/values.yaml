@@ -18,13 +18,14 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   ## Compatibility adaptations for Kubernetes platforms
   ##
   compatibility:
@@ -102,9 +103,9 @@ serviceBindings:
 ## @param image.debug Specify if debug logs should be enabled
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/mariadb
-  tag: latest
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/mariadb
+  tag: 11.4.7-debian-12-r0
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1338,9 +1339,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/os-shell
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets (secrets must be manually created in the namespace)
@@ -1386,9 +1387,9 @@ metrics:
   ## @param metrics.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/mysqld-exporter
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/mysqld-exporter
+    tag: 0.19.0-debian-12-r2
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets (secrets must be manually created in the namespace)

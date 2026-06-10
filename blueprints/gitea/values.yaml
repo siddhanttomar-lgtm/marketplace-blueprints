@@ -18,14 +18,15 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   storageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   ## Compatibility adaptations for Kubernetes platforms
   ##
   compatibility:
@@ -76,9 +77,9 @@ usePasswordFiles: true
 ## @param image.debug Specify if debug logs should be enabled
 ##
 image:
-  registry: docker.io
-  repository: bitnami/gitea
-  tag: 1.24.5-debian-12-r0
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/gitea
+  tag: 1.24.5-debian-12-r2
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -713,6 +714,23 @@ postgresql:
   service:
     ports:
       postgresql: 5432
+  image:
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/postgresql
+    tag: 17.5.0-debian-12-r20
+    pullPolicy: IfNotPresent
+  metrics:
+    image:
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/postgres-exporter
+      tag: 0.17.1-debian-12-r18
+      pullPolicy: IfNotPresent
+  volumePermissions:
+    image:
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/os-shell
+      tag: 12-debian-12-r65
+      pullPolicy: IfNotPresent
 ## External PostgreSQL configuration
 ## All of these values are only used when postgresql.enabled is set to false
 ## @param externalDatabase.host Database host
@@ -749,9 +767,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets Specify docker-registry secret names as an array
   ##
   image:
-    registry: docker.io
-    repository: bitnami/os-shell
-    tag: 12-debian-12-r50
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.

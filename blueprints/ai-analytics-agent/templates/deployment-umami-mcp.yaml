@@ -16,6 +16,8 @@ spec:
       labels:
         {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "umami-mcp") | nindent 8 }}
     spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
       containers:
         - name: umami-mcp
           image: "{{ .Values.umamiMcp.image.repository }}:{{ .Values.umamiMcp.image.tag }}"

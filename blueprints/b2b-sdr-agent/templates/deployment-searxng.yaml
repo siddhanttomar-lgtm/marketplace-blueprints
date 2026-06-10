@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-searxng
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "b2b-sdr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: searxng
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: searxng
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+      containers:
+        - name: searxng
+          image: registry.e2enetworks.net/marketplace-blueprint/searxng:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: searxng-config
+              mountPath: /etc/searxng
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: searxng-config
+          configMap:
+            name: {{ .Release.Name }}-searxng-config

@@ -23,6 +23,8 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: {{ .Release.Name }}-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
       securityContext:
         fsGroup: 1000
       {{- with .Values.nodeSelector }}
@@ -31,25 +33,114 @@ spec:
       {{- end }}
       initContainers:
         - name: init-config
-          image: busybox:1.37
-          imagePullPolicy: IfNotPresent
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - sh
             - -c
             - |
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              cp /home/node/.openclaw/openclaw.json /tmp/openclaw-backup.json
               mkdir -p /home/node/.openclaw/workspace
               cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+
+              # Copy identity/memory files (never overwrite MEMORY.md or USER.md)
+              for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              [ -f /home/node/.openclaw/workspace/USER.md ]   || cp /config/USER.md   /home/node/.openclaw/workspace/USER.md
+              echo "[init-config] Config and identity files copied."
+
+              # Auto-select default model based on which key is set
+              if [ ${#ANTHROPIC_API_KEY} -gt 30 ]; then
+                PROVIDER="anthropic"; MODEL_ID="claude-sonnet-4-5"
+              elif [ ${#OPENAI_API_KEY} -gt 30 ]; then
+                PROVIDER="openai"; MODEL_ID="gpt-4o-mini"
+              elif [ ${#GOOGLE_API_KEY} -gt 20 ]; then
+                PROVIDER="google"; MODEL_ID="gemini-2.0-flash"
+              elif [ ${#GROQ_API_KEY} -gt 30 ]; then
+                PROVIDER="groq"; MODEL_ID="qwen-qwq-32b"
+              elif [ ${#FIREWORKS_API_KEY} -gt 10 ]; then
+                PROVIDER="fireworks"; MODEL_ID="accounts/fireworks/models/deepseek-v4-pro"
+              else
+                echo "[init-config] WARNING: no AI API key set."
+                PROVIDER=""; MODEL_ID=""
+              fi
+
+              if [ -n "$PROVIDER" ] && [ -n "$MODEL_ID" ]; then
+                HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                  node /app/dist/index.js models set "${PROVIDER}/${MODEL_ID}" 2>/dev/null || true
+                echo "[init-config] Default model: ${PROVIDER}/${MODEL_ID}"
+              fi
+
+              # Restore gateway config if models set clobbered it
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/openclaw.json';
+                const backup = JSON.parse(fs.readFileSync('/tmp/openclaw-backup.json','utf8'));
+                let c = {};
+                try { c = JSON.parse(fs.readFileSync(p,'utf8')); } catch(e) { c = {}; }
+                if (!c.gateway || !c.gateway.mode) {
+                  c.gateway = backup.gateway;
+                  if (backup.agents) c.agents = backup.agents;
+                  if (backup.cron)   c.cron   = backup.cron;
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                }
+              " 2>/dev/null || true
+
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/exec-approvals.json';
+                fs.writeFileSync(p, JSON.stringify({
+                  version: 1,
+                  agents: { default: { allowlist: ['node /home/node/.openclaw/workspace/*.js *'] } },
+                  allowlist: []
+                }, null, 2));
+              " 2>/dev/null || true
+
+              echo "[init-config] Done."
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GOOGLE_API_KEY
+                  optional: true
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GROQ_API_KEY
+                  optional: true
+            - name: FIREWORKS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: FIREWORKS_API_KEY
+                  optional: true
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
           resources:
             requests:
-              memory: 32Mi
-              cpu: 50m
-            limits:
-              memory: 64Mi
+              memory: 256Mi
               cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
           volumeMounts:
             - name: openclaw-home
               mountPath: /home/node/.openclaw
@@ -113,6 +204,24 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: OPENAI_API_KEY
+                  optional: true
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GOOGLE_API_KEY
+                  optional: true
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GROQ_API_KEY
+                  optional: true
+            - name: FIREWORKS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: FIREWORKS_API_KEY
                   optional: true
             - name: GEMINI_API_KEY
               valueFrom:

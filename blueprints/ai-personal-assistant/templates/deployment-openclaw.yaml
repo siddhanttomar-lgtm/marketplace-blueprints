@@ -19,6 +19,8 @@ spec:
         {{- include "apa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
       securityContext:
         fsGroup: 1000
       {{- with .Values.nodeSelector }}
@@ -135,6 +137,14 @@ spec:
               cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
               echo "[init-config] AGENTS.md installed."
 
+              # Copy identity and memory files (never overwrite MEMORY.md or USER.md if they already exist)
+              for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              [ -f /home/node/.openclaw/workspace/USER.md ] || cp /config/USER.md /home/node/.openclaw/workspace/USER.md
+              echo "[init-config] Identity files installed."
+
               # Copy all Google Workspace scripts from ConfigMap
               for f in google-token.js gmail.js calendar.js drive.js sheets.js docs.js slides.js tasks.js translate.js; do
                 cp /config/$f /home/node/.openclaw/workspace/$f && chmod 755 /home/node/.openclaw/workspace/$f
@@ -152,6 +162,11 @@ spec:
                 }, null, 2));
                 console.error('[init-config] exec-approvals.json written.');
               " 2>&1 || true
+
+              # Rebuild memory index — prevents "index metadata missing" error on model/provider change
+              HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                node /app/dist/index.js memory index --force 2>/dev/null || true
+              echo "[init-config] Memory index rebuilt."
 
               echo "[init-config] All Google workspace scripts written. Ready."
           env:

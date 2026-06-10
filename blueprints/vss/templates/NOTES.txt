@@ -1,0 +1,87 @@
+NVIDIA Video Search and Summarization (VSS) Blueprint  (chart v1.1.0 / VSS 3.1.0)
+====================================================================================
+
+Deployment started. Components are initializing — this may take 15-30 minutes.
+NIM pods (cosmos + nemotron) will pull model weights from NGC on first start (~40GB total).
+
+━━━ ACCESS URLS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VSS UI (port-forward or platform dashboard URL):
+  kubectl port-forward -n <namespace> svc/{{ include "vss.fullname" . }}-vss-ui {{ .Values.vssUi.port }}:{{ .Values.vssUi.port }}
+  Then open: http://localhost:{{ .Values.vssUi.port }}
+
+VSS Agent API  (NodePort — direct access):
+  http://{{ .Values.externalIp }}:{{ .Values.vssAgent.nodePort }}
+
+VST Video Management  (NodePort — upload + stream management):
+  http://{{ .Values.externalIp }}:{{ .Values.vst.ingress.nodePort }}/vst
+
+{{- if .Values.lvs.enabled }}
+
+LVS Standalone UI  (NodePort — long video RAG summarization):
+  http://{{ .Values.externalIp }}:{{ .Values.lvs.frontendNodePort }}
+{{- end }}
+
+{{- if .Values.phoenix.enabled }}
+
+Phoenix Observability  (port-forward required):
+  kubectl port-forward -n <namespace> svc/{{ include "vss.fullname" . }}-phoenix {{ .Values.phoenix.port }}:{{ .Values.phoenix.port }}
+  Then open: http://localhost:{{ .Values.phoenix.port }}
+{{- end }}
+
+{{- if .Values.kibana.enabled }}
+
+Kibana Analytics  (port-forward required):
+  kubectl port-forward -n <namespace> svc/{{ include "vss.fullname" . }}-kibana {{ .Values.kibana.port }}:{{ .Values.kibana.port }}
+  Then open: http://localhost:{{ .Values.kibana.port }}
+{{- end }}
+
+━━━ ENABLED FEATURES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Base (chat + video management):  always on
+  Semantic Search (RTVI Embed):     {{ .Values.rtviEmbed.enabled }}
+  Real-time Alerts (RTVI VLM):      {{ .Values.rtviVlm.enabled }}
+  Long Video RAG (LVS):             {{ .Values.lvs.enabled }}
+  Kafka pipeline:                   {{ .Values.kafka.enabled }}
+  Kibana dashboards:                {{ .Values.kibana.enabled }}
+  Logstash bridge:                  {{ .Values.logstash.enabled }}
+  Alert Bridge:                     {{ .Values.alertBridge.enabled }}
+
+To enable a feature after install:
+  helm upgrade <release> <chart> --set rtviEmbed.enabled=true --set kafka.enabled=true
+  helm upgrade <release> <chart> --set rtviVlm.enabled=true   --set kafka.enabled=true
+  helm upgrade <release> <chart> --set lvs.enabled=true
+
+━━━ DIAGNOSTICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check pod status:
+  kubectl get pods -n <namespace>
+
+NIM pods (nim-cosmos, nim-nemotron) stay Pending until a GPU node is schedulable
+and model weights finish downloading (~40GB total from NGC on first start).
+
+VST note: sensor and streamprocessing pods require a GPU node when
+  vst.sensor.requireGpu=true or vst.streamprocessing.requireGpu=true (default: false).
+  On CPU clusters these flags are false and pods schedule normally.
+
+Cache size warnings:
+  Cosmos NIM cache:    {{ .Values.nim.cosmos.cacheSize }}  (GPU deploy needs ~80Gi)
+  Nemotron NIM cache:  {{ .Values.nim.nemotron.cacheSize }}  (GPU deploy needs ~40Gi)
+  Increase with: --set nim.cosmos.cacheSize=80Gi --set nim.nemotron.cacheSize=40Gi
+
+{{- if .Values.rtviEmbed.enabled }}
+RTVI Embed note: Cosmos-Embed1-448p (~10GB) downloads to the rtvi-hf-cache PVC on
+  first start. Readiness probe waits up to 20 min (initialDelaySeconds=1200).
+{{- end }}
+
+{{- if .Values.lvs.enabled }}
+LVS note: waits for Elasticsearch + Nemotron NIM to be ready before starting.
+  Video processing artifacts are written to the lvs-data PVC ({{ .Values.lvs.storage.dataSize }}).
+{{- end }}
+
+{{- if .Values.logstash.enabled }}
+
+Logstash (Kafka → Elasticsearch bridge) is enabled.
+Protobuf definitions are bundled — no manual ConfigMap required.
+Verify with: kubectl exec -it <logstash-pod> -- ls /usr/share/logstash/proto/
+{{- end }}

@@ -17,6 +17,8 @@ spec:
         {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "redis") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: registry-pull-secret
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

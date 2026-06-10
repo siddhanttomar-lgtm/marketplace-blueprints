@@ -1,0 +1,212 @@
+{{- if .Values.lvs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-lvs
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: lvs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lvs
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lvs
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: nvcr-pull-secret
+      initContainers:
+        # Wait for Elasticsearch to be ready before starting LVS
+        - name: wait-for-elasticsearch
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf "http://{{ include "vss.fullname" . }}-elasticsearch:{{ .Values.elasticsearch.port }}/_cluster/health?wait_for_status=yellow&timeout=5s"; do
+                echo "Waiting for Elasticsearch..."; sleep 5;
+              done
+              echo "Elasticsearch is ready."
+        # Wait for Nemotron LLM NIM to be ready (LVS uses it for summarization)
+        - name: wait-for-nemotron
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf "http://{{ include "vss.fullname" . }}-nim-nemotron:{{ .Values.nim.nemotron.port }}/v1/health/ready"; do
+                echo "Waiting for Nemotron NIM..."; sleep 10;
+              done
+              echo "Nemotron NIM is ready."
+        # Wait for ES init job to finish creating index templates before LVS starts
+        - name: wait-for-es-templates
+          image: curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Elasticsearch index templates to be created..."
+              MAX_ATTEMPTS=60
+              TEMPLATES="metropolis_template mdx_alerts_template mdx_behavior_template mdx_raw_template"
+              for i in $(seq 1 $MAX_ATTEMPTS); do
+                ALL_READY=true
+                for template in $TEMPLATES; do
+                  if ! curl -sf "{{ include "vss.elasticsearchUrl" . }}/_index_template/$template" > /dev/null 2>&1; then
+                    ALL_READY=false
+                    echo "[$i/$MAX_ATTEMPTS] Template $template not ready..."
+                    break
+                  fi
+                done
+                if [ "$ALL_READY" = true ]; then
+                  echo "All Elasticsearch templates are ready!"
+                  exit 0
+                fi
+                sleep 10
+              done
+              echo "ERROR: Elasticsearch templates failed to create within 10 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+      containers:
+        - name: lvs
+          image: {{ .Values.lvs.image }}
+          env:
+            # LVS runtime config file path — points to the ConfigMap mount
+            - name: CA_RAG_CONFIG
+              value: "/app/config.yaml"
+
+            # Elasticsearch — LVS config separates host (no scheme) and port
+            - name: ES_HOST
+              value: {{ include "vss.fullname" . }}-elasticsearch
+            - name: ES_PORT
+              value: {{ .Values.elasticsearch.port | quote }}
+
+            # LLM for summarization — Nemotron NIM in-cluster
+            - name: LVS_LLM_MODEL_NAME
+              value: {{ include "vss.llmModelName" . | quote }}
+            - name: LVS_LLM_BASE_URL
+              value: {{ include "vss.llmBaseUrl" . }}/v1
+            - name: LVS_LLM_API_KEY
+              value: "not-required-for-local-nim"
+
+            # VLM endpoint — openai-compat mode; delegates to Cosmos NIM in-cluster.
+            # Trailing slash required — LVS .env reference format: ${VLM_BASE_URL}/v1/
+            - name: VIA_VLM_ENDPOINT
+              value: {{ include "vss.vlmBaseUrl" . }}/v1/
+            - name: VIA_VLM_API_KEY
+              value: "not-required-for-local-nim"
+            - name: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
+              value: {{ include "vss.vlmModelName" . | quote }}
+            # Use the in-cluster Cosmos NIM — avoids a second 40GB model download
+            - name: VLM_MODEL_TO_USE
+              value: "openai-compat"
+
+            # NGC API key — used for NGC model cache downloads
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nvcr-api-secret
+                  key: NGC_API_KEY
+
+            # Service ports — LVS listens on these directly (no port remapping)
+            - name: BACKEND_PORT
+              value: {{ .Values.lvs.backendPort | quote }}
+            - name: LVS_MCP_PORT
+              value: {{ .Values.lvs.mcpPort | quote }}
+            - name: FRONTEND_PORT
+              value: {{ .Values.lvs.frontendPort | quote }}
+
+            # Database backend — elasticsearch by default (milvus also supported)
+            - name: LVS_DATABASE_BACKEND
+              value: {{ .Values.lvs.databaseBackend | default "elasticsearch_db" | quote }}
+
+            # Embedding service — disabled by default (no separate embedding NIM required)
+            - name: LVS_EMB_ENABLE
+              value: {{ .Values.lvs.embeddingEnabled | default false | quote }}
+            {{- if .Values.lvs.embeddingEnabled }}
+            - name: LVS_EMB_MODEL_NAME
+              value: {{ .Values.lvs.embeddingModelName | default "cosmos-embed1-448p" | quote }}
+            - name: LVS_EMB_BASE_URL
+              value: {{ include "vss.rtviEmbedUrl" . | quote }}
+            {{- end }}
+
+            # LLM inference config
+            - name: LVS_LLM_MAX_TOKENS
+              value: {{ .Values.lvs.llmMaxTokens | default 10240 | quote }}
+
+            # VLM input resolution (frame size for summarization)
+            - name: VLM_INPUT_WIDTH
+              value: "1312"
+            - name: VLM_INPUT_HEIGHT
+              value: "736"
+
+            # GPU device assignment (optional — LVS is primarily a CPU service)
+            - name: GPU_DEVICES
+              value: {{ .Values.gpu.deviceIds | quote }}
+
+            # Model root directory (temp storage for video processing)
+            - name: MODEL_ROOT_DIR
+              value: "/opt/models/"
+
+            # Feature flags
+            - name: DISABLE_GUARDRAILS
+              value: "true"
+            - name: LVS_ENABLE_MCP
+              value: "true"
+            # Prevent DB reset between requests — preserves context for multi-query sessions
+            - name: LVS_DISABLE_DB_RESET_ON_REQUEST_DONE
+              value: "true"
+
+          ports:
+            - containerPort: {{ .Values.lvs.backendPort }}
+              name: backend
+            - containerPort: {{ .Values.lvs.mcpPort }}
+              name: mcp
+            - containerPort: {{ .Values.lvs.frontendPort }}
+              name: frontend
+
+          readinessProbe:
+            httpGet:
+              path: /v1/ready
+              port: {{ .Values.lvs.backendPort }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
+
+          livenessProbe:
+            httpGet:
+              path: /v1/ready
+              port: {{ .Values.lvs.backendPort }}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+
+          resources:
+            {{- toYaml .Values.lvs.resources | nindent 12 }}
+
+          volumeMounts:
+            # LVS application config (tools, functions, context_manager)
+            - name: lvs-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+            # Temp storage for video processing and model outputs
+            - name: lvs-data
+              mountPath: /opt/models/
+
+      volumes:
+        - name: lvs-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-lvs-config
+        - name: lvs-data
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-lvs-data
+{{- end }}

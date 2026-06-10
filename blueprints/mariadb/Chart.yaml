@@ -20,7 +20,9 @@ dependencies:
   tags:
   - bitnami-common
   version: 2.37.0
-description: "MariaDB is an open source, community-developed SQL database server that is widely in use around the world due to its enterprise features, flexibility, and collaboration with leading tech firms."
+description: MariaDB is an open source, community-developed SQL database server that
+  is widely in use around the world due to its enterprise features, flexibility, and
+  collaboration with leading tech firms.
 home: https://bitnami.com
 icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/mariadb/img/mariadb-stack-220x234.png
 keywords:
@@ -30,7 +32,7 @@ keywords:
 - sql
 - prometheus
 maintainers:
-- name: "Broadcom, Inc. All Rights Reserved."
+- name: Broadcom, Inc. All Rights Reserved.
   url: https://github.com/bitnami/charts
 name: mariadb
 sources:

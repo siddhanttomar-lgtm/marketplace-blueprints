@@ -1,10 +1,11 @@
 apiVersion: v2
-name: jenkins-maven
-description: Jenkins CI/CD with Apache Maven pre-installed. One-click deploy on E2E Marketplace.
-type: application
-version: 1.0.5
 appVersion: "2.492"
 dependencies:
-  - name: jenkins
-    version: 13.6.17
-    repository: oci://registry-1.docker.io/bitnamicharts
+- name: jenkins
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 13.6.17
+description: Jenkins CI/CD with Apache Maven pre-installed. One-click deploy on E2E
+  Marketplace.
+name: jenkins-maven
+type: application
+version: 1.0.5

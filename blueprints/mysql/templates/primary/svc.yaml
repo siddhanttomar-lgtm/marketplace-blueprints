@@ -9,7 +9,6 @@ metadata:
   name: {{ include "mysql.primary.fullname" . }}
   namespace: {{ include "common.names.namespace" . | quote }}
   labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
-    app.kubernetes.io/part-of: mysql
     app.kubernetes.io/component: primary
   {{- if or .Values.primary.service.annotations .Values.commonAnnotations }}
   {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.primary.service.annotations .Values.commonAnnotations ) "context" . ) }}
@@ -35,9 +34,6 @@ spec:
   {{- if and (eq .Values.primary.service.type "LoadBalancer") (not (empty .Values.primary.service.loadBalancerIP)) }}
   loadBalancerIP: {{ .Values.primary.service.loadBalancerIP }}
   {{- end }}
-  {{- if .Values.primary.service.externalIPs }}
-  externalIPs: {{- include "common.tplvalues.render" (dict "value" .Values.primary.service.externalIPs "context" $) | nindent 4 }}
-  {{- end }}  
   ports:
     - name: mysql
       port: {{ .Values.primary.service.ports.mysql }}
@@ -64,5 +60,4 @@ spec:
     {{- end }}
   {{- $podLabels := include "common.tplvalues.merge" ( dict "values" ( list .Values.primary.podLabels .Values.commonLabels ) "context" . ) }}
   selector: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 4 }}
-    app.kubernetes.io/part-of: mysql
     app.kubernetes.io/component: primary

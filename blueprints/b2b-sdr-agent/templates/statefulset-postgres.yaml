@@ -18,6 +18,8 @@ spec:
         {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "postgres") | nindent 8 }}
     spec:
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: registry-pull-secret
       securityContext:
         fsGroup: 1001
       {{- with .Values.nodeSelector }}

@@ -16,13 +16,14 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   ## Compatibility adaptations for Kubernetes platforms
   ##
   compatibility:
@@ -95,9 +96,9 @@ serviceBindings:
 ## @param image.debug Specify if debug values should be set
 ##
 image:
-  registry: docker.io
-  repository: bitnami/kafka
-  tag: 4.0.0-debian-12-r10
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/kafka
+  tag: 4.0.0-debian-12-r9
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -486,9 +487,9 @@ defaultInitContainers:
     ## @param defaultInitContainers.volumePermissions.image.pullSecrets "volume-permissions" init-containers' image pull secrets
     ##
     image:
-      registry: docker.io
-      repository: bitnami/os-shell
-      tag: 12-debian-12-r51
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/os-shell
+      tag: 12-debian-12-r65
       digest: ""
       pullPolicy: IfNotPresent
       ## Optionally specify an array of imagePullSecrets.
@@ -607,9 +608,9 @@ defaultInitContainers:
     ## @param defaultInitContainers.autoDiscovery.image.pullSecrets "auto-discovery" init-containers' image pull secrets
     ##
     image:
-      registry: docker.io
-      repository: bitnami/kubectl
-      tag: 1.33.4-debian-12-r0
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/kubectl
+      tag: 1.33.3-debian-12-r1
       digest: ""
       ## Specify a imagePullPolicy
       ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1999,9 +2000,9 @@ metrics:
     ## @param metrics.jmx.image.pullSecrets Specify docker-registry secret names as an array
     ##
     image:
-      registry: docker.io
-      repository: bitnami/jmx-exporter
-      tag: 1.4.0-debian-12-r0
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/jmx-exporter
+      tag: 1.5.0-debian-12-r7
       digest: ""
       ## Specify a imagePullPolicy
       ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -2485,3 +2486,18 @@ provisioning:
   ##         containerPort: 1234
   ##
   initContainers: []
+
+## @section E2E Kafka UI parameters
+## kafka-ui (provectuslabs/kafka-ui) sidecar deployment
+kafkaUi:
+  ## @param kafkaUi.enabled Deploy the kafka-ui web interface alongside Kafka
+  enabled: false
+  ## @param kafkaUi.lbIpDashes LB IP in dash notation (e.g. 172-16-230-151).
+  ## Set automatically by the marketplace via helm_extra_config.
+  lbIpDashes: ""
+  ## @param kafkaUi.domainSuffix DNS wildcard suffix appended after the LB IP dashes.
+  ## Set automatically by the marketplace via helm_extra_config. Defaults to sslip.io
+  ## but can be overridden to any wildcard DNS provider (e.g. nip.io, apps.example.com).
+  domainSuffix: "sslip.io"
+  ## @param kafkaUi.image kafka-ui container image
+  image: provectuslabs/kafka-ui:latest

@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-nginx
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pb.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: nginx
+  template:
+    metadata:
+      labels:
+        {{- include "pb.labels" . | nindent 8 }}
+        app.kubernetes.io/component: nginx
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nginx
+          image: "{{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}"
+          imagePullPolicy: {{ .Values.nginx.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.nginx.resources | nindent 12 }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: nginx-config
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+
+        # Ingress patcher sidecar
+        - name: ingress-patcher
+          image: "{{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}"
+          imagePullPolicy: {{ .Values.nginx.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              INGRESS="ingress-{{ .Release.Name }}"
+              NS="{{ .Release.Namespace }}"
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              BASE="https://kubernetes.default.svc/apis/networking.k8s.io/v1/namespaces/${NS}/ingresses/${INGRESS}"
+              for i in $(seq 1 24); do
+                CODE=$(wget --quiet --server-response --spider \
+                  --header="Authorization: Bearer ${TOKEN}" \
+                  --ca-certificate="${CA}" \
+                  "${BASE}" 2>&1 | grep "HTTP/" | awk '{print $2}' | tail -1)
+                if [ "$CODE" = "200" ]; then
+                  wget --quiet --output-document=- \
+                    --method=PATCH \
+                    --header="Authorization: Bearer ${TOKEN}" \
+                    --header="Content-Type: application/merge-patch+json" \
+                    --ca-certificate="${CA}" \
+                    --body-data='{"metadata":{"annotations":{"haproxy-ingress.github.io/timeout-tunnel":"1h"}}}' \
+                    "${BASE}" > /dev/null 2>&1
+                  echo "[ingress-patcher] patched ${INGRESS}"
+                  break
+                fi
+                echo "[ingress-patcher] waiting (${i}/24)..."
+                sleep 5
+              done
+              sleep infinity
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ .Release.Name }}-nginx-config

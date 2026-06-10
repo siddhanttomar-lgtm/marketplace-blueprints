@@ -1,12 +1,12 @@
 openclaw:
   image:
-    repository: ghcr.io/openclaw/openclaw
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
     tag: "slim"
     pullPolicy: IfNotPresent
   storage:
     size: "5Gi"
   # REQUIRED: Gateway auth token — change before production
-  gatewayToken: ""
+  gatewayToken: "Assistant@12345"
   # Google OAuth credentials — obtain once via Google OAuth Playground
   # See user guide: https://developers.google.com/oauthplayground
   googleClientId: ""

@@ -1,0 +1,24 @@
+# Dashboard ingress — public access at {release}-dash.172-16-230-151.sslip.io
+# sslip.io wildcard DNS: any *-dash.<ip>.sslip.io resolves to the cluster IP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-dashboard-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: {{ .Release.Name }}-dash.172-16-230-151.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}
+                port:
+                  number: 9000

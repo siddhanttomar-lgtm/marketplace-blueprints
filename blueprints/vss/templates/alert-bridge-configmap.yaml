@@ -1,0 +1,115 @@
+{{- if .Values.alertBridge.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-alert-bridge-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alert-bridge
+data:
+  config.yml: |
+    ALERT_REVIEW_MEDIA_BASE_DIR: ""
+
+    vst_config:
+      recording_check_max_attempts: 3
+      base_url: {{ include "vss.vstInternalUrl" . | quote }}
+      sensor_list_endpoint: "/vst/api/v1/sensor/streams"
+      add_overlay: false
+      segment_anchor: "end"
+      segment_duration_seconds: 10
+      storage:
+        base_url: {{ include "vss.vstInternalUrl" . | quote }}
+        media_file_path_by_id_endpoint: "/api/v1/storage/file/path"
+
+    kafka:
+      bootstrap_servers: {{ include "vss.kafkaBootstrap" . | quote }}
+      group_id: "kafka-incidents-dumper"
+      max_poll_records: 10
+      auto_offset_reset: "latest"
+      enable_auto_commit: false
+      max_poll_interval_ms: 600000
+      session_timeout_ms: 45000
+      heartbeat_interval_ms: 15000
+      poll_timeout: 5
+      message_type: "Incident"
+      enhanced_anomaly_topic: "alert-bridge-enhanced-alerts"
+      incidents_topic: "alert-bridge-incidents"
+
+    vlm:
+      base_url: {{ include "vss.vlmBaseUrl" . }}/v1
+      model: {{ include "vss.vlmModelName" . | quote }}
+      max_tokens: 4096
+      min_pixels: 1568
+      max_pixels: 3960000
+      enable_sampling: true
+      sampling_fps: 4
+
+    event_bridge:
+      sourceType: "kafka"
+      sinkType: "kafka"
+      kafka_source:
+        group_id: "alert-bridge-vlm-group"
+        topics:
+          incident: "mdx-incidents"
+      redis_source:
+        host: {{ include "vss.redisHost" . | quote }}
+        port: {{ .Values.redis.port }}
+        db: 0
+        dedup_ttl_seconds: 5
+        protect_confirmed_verdicts:
+          enabled: true
+          ttl_seconds: 600
+        end_time_delta_filter:
+          enabled: true
+          threshold_seconds: 3
+          ttl_seconds: 3600
+        end_time_in_dedup_key_categories: []
+        streams:
+          anomaly_stream: "alert-bridge-input-stream"
+          heartbeat_stream: "alert-bridge-heartbeats-stream"
+        consumer_group: "vlm_agents_group"
+        consumer_config:
+          block_time: 10
+          count: 1
+          batch_size: 1
+      redis_sink:
+        host: {{ include "vss.redisHost" . | quote }}
+        port: {{ .Values.redis.port }}
+        db: 0
+        streams:
+          enhanced_anomaly_stream: "alert-bridge-enhanced-stream"
+          incidents_stream: "alert-bridge-incidents-stream"
+
+    prompt:
+      prefer_payload_prompt: false
+      override_prompts_on_start: true
+
+    alert_type_config_file: "alert_type_config.json"
+
+    alert_agent:
+      num_workers: 10
+      max_allowed_stream_size: 2
+      default_stream_interval: 1
+      vst_pass_through_mode: false
+      include_latency_info: false
+
+    elastic:
+      enabled: true
+      hosts:
+        - {{ include "vss.elasticsearchUrl" . | quote }}
+
+    vlm_enhanced_sink:
+      incident:
+        type: "elastic"
+        elastic:
+          index: "mdx-vlm-incidents"
+      alert:
+        type: "elastic"
+        elastic:
+          index: "mdx-vlm-alerts"
+
+    logging:
+      level: "INFO"
+      format: "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+      third_party_level: "WARNING"
+{{- end }}

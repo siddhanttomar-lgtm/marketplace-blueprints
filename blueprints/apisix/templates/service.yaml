@@ -1,0 +1,31 @@
+# Primary service — named {{ .Release.Name }} so platform ingress routes here.
+# port 80  → gateway  (9080) : public API traffic
+# port 9000 → dashboard (9000): accessed via dashboard-ingress
+# port 9180 → admin API (9180): internal ClusterIP only (no ingress)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9080
+      protocol: TCP
+    - name: dashboard
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: admin
+      port: 9180
+      targetPort: 9180
+      protocol: TCP

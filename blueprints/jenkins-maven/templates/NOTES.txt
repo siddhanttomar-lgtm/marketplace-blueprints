@@ -1,9 +1,10 @@
-Jenkins + Maven is deploying. Allow up to 5 minutes for the JVM and plugins to initialize.
+Jenkins with Maven is deploying. Allow 2-3 minutes for the pod to reach Ready state.
+
+Get the admin password:
+  kubectl exec -it $(kubectl get pods -l app.kubernetes.io/name=jenkins -o name | head -1) \
+    -- cat /bitnami/jenkins/home/secrets/initialAdminPassword
 
 Get the NodePort:
-  kubectl get svc {{ .Release.Name }}-jenkins -o jsonpath='{.spec.ports[0].nodePort}'
+  kubectl get svc -l app.kubernetes.io/name=jenkins -o jsonpath='{.items[0].spec.ports[0].nodePort}'
 
-Retrieve the admin password:
-  kubectl get secret {{ .Release.Name }}-jenkins -o jsonpath='{.data.jenkins-password}' | base64 -d
-
-Open http://<node-ip>:<nodeport> in your browser.
+Open: http://<node-ip>:<nodeport>

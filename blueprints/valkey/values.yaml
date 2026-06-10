@@ -20,14 +20,15 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   defaultStorageClass: ""
   storageClass: ""
   ## Security parameters
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   valkey:
     password: ""
   ## Compatibility adaptations for Kubernetes platforms
@@ -112,9 +113,9 @@ diagnosticMode:
 ## @param image.debug Enable image debug mode
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/valkey
-  tag: latest
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/valkey
+  tag: 9.0.4-debian-12-r1
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1188,9 +1189,9 @@ sentinel:
   ## @param sentinel.image.debug Enable image debug mode
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/valkey-sentinel
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/valkey-sentinel
+    tag: 9.0.4-debian-12-r1
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1682,9 +1683,9 @@ metrics:
   ## @param metrics.image.pullSecrets Redis(R) Exporter image pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/redis-exporter
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/redis-exporter
+    tag: 1.83.0-debian-12-r2
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally, specify an array of imagePullSecrets.
@@ -2060,9 +2061,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets OS Shell + Utility image pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/os-shell
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally, specify an array of imagePullSecrets.
@@ -2121,9 +2122,9 @@ kubectl:
   ## @param kubectl.image.pullSecrets Kubectl pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/kubectl
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/kubectl
+    tag: 1.31.4-debian-12-r1
     digest: ""
     ## Specify a imagePullPolicy
     ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images

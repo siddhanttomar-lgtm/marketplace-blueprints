@@ -1,15 +1,15 @@
 image:
-  repository: ghcr.io/openclaw/openclaw
+  repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
   tag: slim
   pullPolicy: IfNotPresent
 
 gateway:
-  # Token required to authenticate with the OpenClaw gateway API.
-  # Change this before production — anyone with this token can use the gateway.
-  token: ""
-  # Optional API keys — leave empty if not needed
+  token: "ChangeMe@Gateway123"
   anthropicApiKey: ""
   openaiApiKey: ""
+  googleApiKey: ""
+  groqApiKey: ""
+  fireworksApiKey: ""
   geminiApiKey: ""
   openrouterApiKey: ""
 

@@ -1,4 +1,4 @@
-name: Lint Charts
+Nowname: Lint Charts
 
 on:
   pull_request:

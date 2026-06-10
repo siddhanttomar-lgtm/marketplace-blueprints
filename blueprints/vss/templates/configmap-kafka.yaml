@@ -1,0 +1,30 @@
+{{- if .Values.kafka.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-kafka-entrypoint
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka
+data:
+  kafka-entrypoint.sh: |
+    #!/bin/bash
+    set -e
+
+    CLUSTER_ID_FILE=/tmp/kafka-data/cluster_id
+
+    if [ -f "$CLUSTER_ID_FILE" ]; then
+        export KAFKA_CLUSTER_ID=$(cat "$CLUSTER_ID_FILE")
+        echo "Found existing Cluster ID: $KAFKA_CLUSTER_ID"
+    else
+        TIMESTAMP=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')
+        CLUSTER_STRING="vss-kafka-cluster-${TIMESTAMP}"
+        export KAFKA_CLUSTER_ID=$(echo -n "$CLUSTER_STRING" | base64 | tr -d '\n')
+        echo "Generated new Cluster ID: $KAFKA_CLUSTER_ID"
+        mkdir -p $(dirname "$CLUSTER_ID_FILE")
+        echo "$KAFKA_CLUSTER_ID" > "$CLUSTER_ID_FILE"
+    fi
+
+    export CLUSTER_ID="$KAFKA_CLUSTER_ID"
+    exec /etc/confluent/docker/run "$@"
+{{- end }}

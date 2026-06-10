@@ -1,6 +1,0 @@
-apiVersion: v2
-name: rag-kb
-description: RAG Knowledge Base — n8n + Qdrant + Ollama + Open WebUI
-type: application
-version: 1.0.0
-appVersion: "1.0.0"

@@ -1,0 +1,11 @@
+apiVersion: v2
+appVersion: 3.1.0
+description: 'NVIDIA Video Search and Summarization (VSS) Blueprint v3.1.0. Full-stack
+  AI video intelligence on Kubernetes: chat Q&A, video upload and management (VST),
+  semantic search (RTVI Embed), real-time AI alerts (RTVI VLM), long-video RAG summarization
+  (LVS), NIM inference (Cosmos-Reason2-8B VLM + Nemotron-Nano-9B LLM), observability
+  (Phoenix), and optional analytics pipeline (Kafka + Elasticsearch + Kibana + Logstash).
+  Requires an NGC API key and a GPU node (or external NIM endpoints). '
+name: vss
+type: application
+version: 1.3.0

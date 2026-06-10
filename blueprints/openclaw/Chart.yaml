@@ -1,7 +1,7 @@
 apiVersion: v2
-appVersion: slim
+appVersion: "2026.5.12"
 description: 'OpenClaw AI Gateway — self-hosted gateway for Claude, GPT-4, and Gemini
   with token auth and a built-in control UI. One-click deploy on E2E Marketplace. '
 name: openclaw
 type: application
-version: 1.0.10
+version: 2026.5.12

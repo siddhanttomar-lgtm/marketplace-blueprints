@@ -1,0 +1,114 @@
+{{- if .Values.vst.sdr.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sdr
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sdr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vst-sdr
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vst-sdr
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vst-sdr
+    spec:
+      imagePullSecrets:
+        - name: nvcr-pull-secret
+      serviceAccountName: {{ include "vss.fullname" . }}-vst-sdr
+      containers:
+        - name: vst-sdr
+          image: {{ .Values.vst.sdr.image }}
+          env:
+            - name: PORT
+              value: {{ .Values.vst.sdr.port | quote }}
+            - name: WDM_CLUSTER_TYPE
+              value: kubernetes
+            - name: WDM_CLUSTER_CONFIG_FILE
+              value: /wdm-configs/cluster_config.json
+            - name: CONTAINER_NAME
+              value: sdr-streamprocessing
+            - name: WDM_MSG_KEY
+              value: vst.event
+            - name: WDM_WL_REDIS_SERVER
+              value: {{ include "vss.redisHost" . | quote }}
+            - name: WDM_WL_REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: WDM_WL_REDIS_MSG_FIELD
+              value: sensor.id
+            - name: WDM_WL_ADD_URL
+              value: /api/v1/proxy/stream/add
+            - name: WDM_WL_DELETE_URL
+              value: /api/v1/proxy/stream/
+            - name: WDM_WL_HEALTH_CHECK_URL
+              value: /api/v1/proxy/configuration
+            - name: WDM_WL_CHANGE_ID_ADD
+              value: camera_proxy
+            - name: WDM_WL_CHANGE_ID_DEL
+              value: camera_remove
+            - name: WDM_PRELOAD_WORKLOAD
+              value: ./tests/event_pre-roll.json
+            - name: WDM_CLEAR_DATA_WL
+              value: "true"
+            - name: WDM_KFK_ENABLE
+              value: "false"
+            - name: WDM_MSG_TOPIC
+              value: vst_events
+            - name: WDM_KFK_BOOTSTRAP_URL
+              value: {{ include "vss.kafkaBootstrap" . | quote }}
+            - name: WDM_DS_SWAP_ID_NAME
+              value: "false"
+            - name: WDM_WL_THRESHOLD
+              value: "100"
+            - name: WDM_ADD_REMOVE_RETRY_ATTEMPTS
+              value: "50"
+            - name: WDM_POD_WATCH_DOCKER_DELAY
+              value: "0.5"
+            - name: WDM_RESTART_DS_ON_ADD_FAIL
+              value: "false"
+            - name: WDM_DISABLE_WERKZEUG_LOGGING
+              value: "true"
+            - name: WDM_WL_OBJECT_NAME
+              value: streamprocessing-ms
+            - name: WDM_CONSUMER_GRP_ID
+              value: sdr-streamprocessing-cg
+            - name: WDM_CLUSTER_CONTAINER_NAMES
+              value: '["streamprocessing-ms"]'
+            - name: VST_STREAMS_ENDPOINT
+              value: "http://{{ include "vss.fullname" . }}-vst-sensor:{{ .Values.vst.sensor.port }}/api/v1/sensor/streams"
+            - name: VST_STATUS_ENDPOINT
+              value: "http://{{ include "vss.fullname" . }}-vst-sensor:{{ .Values.vst.sensor.port }}/api/v1/sensor/status"
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: WDM_INITIALIZE_FROM_VST
+              value: "false"
+            - name: ENVOY_REQUEST_TIMEOUT
+              value: "300"
+            - name: WDM_TARGET_PORT_MAPPING
+              value: '{"streamprocessing-ms-1": 30001}'
+            - name: OTEL_SERVICE_NAME
+              value: SDR_AGENT
+            - name: WDM_REDIS_CACHE_OBJECT
+              value: streamprocessing-data
+            - name: WDM_WL_NAME_IGNORE_REGEX
+              value: ""
+          ports:
+            - containerPort: {{ .Values.vst.sdr.port }}
+              name: grpc
+          resources:
+            {{- toYaml .Values.vst.sdr.resources | nindent 12 }}
+          volumeMounts:
+            - name: sdr-config
+              mountPath: /wdm-configs/cluster_config.json
+              subPath: cluster_config.json
+      volumes:
+        - name: sdr-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-vst-sdr-config
+{{- end }}

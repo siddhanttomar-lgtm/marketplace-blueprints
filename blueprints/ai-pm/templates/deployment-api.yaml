@@ -1,0 +1,279 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aipm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: plane-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: plane-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: plane-api
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      imagePullSecrets:
+        - name: registry-pull-secret
+      initContainers:
+        - name: wait-postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Release.Name }}-postgres -p 5432 -U $POSTGRESQL_USERNAME; do
+                echo "[wait-postgres] Waiting..."; sleep 3
+              done
+          env:
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_USER
+
+        - name: migrator
+          image: "{{ .Values.plane.image.repository }}:{{ .Values.plane.image.tag }}"
+          imagePullPolicy: {{ .Values.plane.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "[migrator] Running database migrations..."
+              python manage.py wait_for_db
+              python manage.py migrate
+              echo "[migrator] Migrations complete. Creating admin user, workspace and API token..."
+              python manage.py shell -c "
+              import os, uuid
+              from django.utils import timezone
+              from django.contrib.auth import get_user_model
+              from plane.db.models import APIToken, Workspace, WorkspaceMember
+
+              User = get_user_model()
+              email = os.environ.get('DEFAULT_EMAIL', '')
+              password = os.environ.get('DEFAULT_PASSWORD', '')
+              token_value = os.environ.get('PLANE_AGENT_TOKEN', '')
+              ws_slug = os.environ.get('PLANE_WORKSPACE_SLUG', 'my-team')
+              ws_name = os.environ.get('PLANE_WORKSPACE_NAME', 'My Team')
+
+              if not email:
+                  print('[migrator] WARNING: DEFAULT_EMAIL not set — skipping setup.')
+              else:
+                  # 1. Create admin user
+                  user, created = User.objects.get_or_create(
+                      email=email,
+                      defaults={'username': email, 'is_staff': True, 'is_superuser': True, 'is_password_autoset': False}
+                  )
+                  if created:
+                      user.set_password(password)
+                      user.save()
+                      print('[migrator] Admin user created: ' + email)
+                  else:
+                      print('[migrator] Admin user already exists: ' + email)
+
+                  # 2. Create workspace
+                  ws, ws_created = Workspace.objects.get_or_create(
+                      slug=ws_slug,
+                      defaults={
+                          'name': ws_name,
+                          'owner': user,
+                          'created_by': user,
+                          'updated_by': user,
+                      }
+                  )
+                  print('[migrator] Workspace ' + ('created' if ws_created else 'already exists') + ': ' + ws_slug)
+
+                  # 3. Add admin as workspace owner/admin
+                  wm, wm_created = WorkspaceMember.objects.get_or_create(
+                      workspace=ws,
+                      member=user,
+                      defaults={
+                          'role': 20,
+                          'created_by': user,
+                          'updated_by': user,
+                          'is_active': True,
+                          'view_props': {},
+                          'default_props': {},
+                          'issue_props': {},
+                      }
+                  )
+                  print('[migrator] Workspace member ' + ('added' if wm_created else 'already exists') + '.')
+
+                  # 4. Create API token
+                  if token_value:
+                      obj, tok_created = APIToken.objects.get_or_create(
+                          token=token_value,
+                          defaults={'user': user, 'label': 'AI PM Agent', 'expired_at': None}
+                      )
+                      print('[migrator] Agent token ' + ('created' if tok_created else 'already exists') + '.')
+              "
+              echo "[migrator] Done."
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-plane-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_DB
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: REDIS_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-postgres:5432/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ .Release.Name }}-redis:6379/"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_SECRET_KEY
+            - name: DEFAULT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_ADMIN_EMAIL
+            - name: DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_ADMIN_PASSWORD
+            - name: PLANE_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_AGENT_TOKEN
+            - name: PLANE_WORKSPACE_SLUG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_WORKSPACE_SLUG
+            - name: PLANE_WORKSPACE_NAME
+              value: "My Team"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      containers:
+        - name: plane-api
+          image: "{{ .Values.plane.image.repository }}:{{ .Values.plane.image.tag }}"
+          imagePullPolicy: {{ .Values.plane.image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              # Patch: enable APIKeyAuthentication on /api/ (non-v1) routes so the
+              # OpenClaw agent can reach members/labels/etc. that aren't exposed in v1.
+              python -c "
+              p = '/code/plane/app/views/base.py'
+              s = open(p).read()
+              if 'APIKeyAuthentication' not in s:
+                  s = s.replace(
+                      'from plane.authentication.session import BaseSessionAuthentication',
+                      'from plane.authentication.session import BaseSessionAuthentication\nfrom plane.app.middleware.api_authentication import APIKeyAuthentication'
+                  )
+                  s = s.replace(
+                      'authentication_classes = [\n        BaseSessionAuthentication,\n    ]',
+                      'authentication_classes = [\n        BaseSessionAuthentication,\n        APIKeyAuthentication,\n    ]'
+                  )
+                  open(p,'w').write(s)
+                  print('[patch-auth] APIKeyAuthentication enabled on /api/ routes')
+              else:
+                  print('[patch-auth] already applied')
+              "
+              python manage.py wait_for_db
+              python manage.py wait_for_migrations
+              python manage.py register_instance "ai-pm-${HOSTNAME}" || true
+              python manage.py configure_instance || true
+              python manage.py clear_cache || true
+              exec gunicorn -w "${GUNICORN_WORKERS:-2}" -k uvicorn.workers.UvicornWorker plane.asgi:application --bind 0.0.0.0:8000 --max-requests 1200 --max-requests-jitter 1000 --access-logfile -
+          ports:
+            - name: api
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-plane-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: POSTGRES_DB
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: REDIS_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@{{ .Release.Name }}-postgres:5432/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@{{ .Release.Name }}-redis:6379/"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_SECRET_KEY
+            - name: DEFAULT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_ADMIN_EMAIL
+            - name: DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: PLANE_ADMIN_PASSWORD
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.plane.resources.api | nindent 12 }}

@@ -332,6 +332,13 @@ Returns an init-container that prepares the Kafka configuration files for main c
       {{- if $externalAccessEnabled }}
       configure_external_access
       {{- end }}
+      # E2E: override advertised listener with external endpoint if set by post-install fixup
+      if [[ -f "/bitnami/kafka/data/.e2e_external_host" ]]; then
+          E2E_EXTERNAL_HOST=$(cat /bitnami/kafka/data/.e2e_external_host)
+          INTERNAL_HOST="${MY_POD_NAME}.${KAFKA_FULLNAME}-${POD_ROLE}-headless.${MY_POD_NAMESPACE}.svc.${CLUSTER_DOMAIN}"
+          sed -i "s|CLIENT://${INTERNAL_HOST}:9092|CLIENT://${E2E_EXTERNAL_HOST}|g" "$KAFKA_CONF_FILE"
+          echo "E2E: advertised listener overridden to CLIENT://${E2E_EXTERNAL_HOST}"
+      fi
       {{- end }}
       {{- if include "kafka.sslEnabled" .context }}
       configure_kafka_tls

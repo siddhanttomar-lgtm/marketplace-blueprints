@@ -10,34 +10,33 @@ Every blueprint in this repository is a fully self-contained Kubernetes deployme
 
 | Blueprint | Version | Category |
 |-----------|---------|----------|
-| [ClickHouse](blueprints/clickhouse/README.md) | 25.7.5 | Databases |
-| [InfluxDB](blueprints/influxdb/README.md) | 3.4.1 | Databases |
+| [ClickHouse](blueprints/clickhouse/README.md) | 25.4 | Databases |
 | [MariaDB](blueprints/mariadb/README.md) | 12.2.2 | Databases |
 | [Memcached](blueprints/memcached/README.md) | 1.6.41 | Databases / Cache |
 | [MongoDB](blueprints/mongodb/README.md) | 8.2.6 | Databases |
-| [MySQL](blueprints/mysql/README.md) | 9.4.0 | Databases |
+| [MySQL](blueprints/mysql/README.md) | 8.4.0 | Databases |
 | [PostgreSQL](blueprints/postgresql/README.md) | 18.3.0 | Databases |
 | [Redis](blueprints/redis/README.md) | 7.4.1 | Databases / Cache |
 | [Valkey](blueprints/valkey/README.md) | 9.1.0 | Databases / Cache |
 | [Apache Kafka](blueprints/kafka/README.md) | 4.0.0 | Messaging |
 | [NATS](blueprints/nats/README.md) | 2.11.8 | Messaging |
-| [RabbitMQ](blueprints/rabbitmq/README.md) | 4.1.3 | Messaging |
+| [RabbitMQ](blueprints/rabbitmq/README.md) | 3.13.7 | Messaging |
 | [Grafana](blueprints/grafana/README.md) | 12.1.1 | Monitoring |
-| [Prometheus](blueprints/prometheus/README.md) | 29.8.0 | Monitoring |
+| [Prometheus](blueprints/prometheus/README.md) | 2.53.4 | Monitoring |
+| [Uptime Monitor](blueprints/uptime-monitor/README.md) | 11.3.3 | Monitoring |
 | [Nginx](blueprints/nginx/README.md) | 1.29.6 | Web Servers |
 | [Apache Tomcat](blueprints/tomcat/README.md) | 11.0.20 | Web Servers |
-| [Nextcloud](blueprints/nextcloud/README.md) | 33.0.3 | Collaboration |
-| [WordPress](blueprints/wordpress/README.md) | 6.9.1 | CMS |
 | [Gitea](blueprints/gitea/README.md) | 1.24.5 | Developer Tools |
 | [Jenkins with Maven](blueprints/jenkins-maven/README.md) | 2.492 | Developer Tools |
-| [Keycloak](blueprints/keycloak/README.md) | 26.3.3 | Security |
-| [Mattermost](blueprints/mattermost/README.md) | 9.11.2 | Collaboration |
-| [OpenClaw](blueprints/openclaw/README.md) | slim | AI / LLM Gateway |
-| [Claw Analytics Agent](blueprints/ai-analytics-agent/README.md) | 1.0.0 | AI / Agents |
-| [Claw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 1.0.0 | AI / Agents |
-| [Open WebUI with Ollama](blueprints/open-webui/README.md) | 1.0.0 | AI / LLM |
+| [Apache APISIX](blueprints/apisix/README.md) | 3.16.0 | API Gateway |
+| [Keycloak](blueprints/keycloak/README.md) | 26.1.4 | Security |
+| [OpenClaw](blueprints/openclaw/README.md) | 2026.5.12 | AI / LLM Gateway |
+| [AI Chat Workspace](blueprints/open-webui/README.md) | 1.0.0 | AI / LLM |
+| [Claw Analytics Agent](blueprints/ai-analytics-agent/README.md) | 1.2.0 | AI / Agents |
+| [Claw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 4.1.0 | AI / Agents |
 | [OpenClaw Personal Assistant](blueprints/ai-personal-assistant/README.md) | 1.0.0 | AI / Agents |
-| [RAG Knowledge Base](blueprints/rag-kb/README.md) | 1.0.0 | AI / RAG |
+| [OpenClaw Project Manager](blueprints/ai-pm/README.md) | 1.0.0 | AI / Agents |
+| [Nvidia Video Search and Summarization (VSS)](blueprints/vss/README.md) | 3.1.0 | AI / Video |
 | [n8n](blueprints/n8n/README.md) | 1.122.4 | Automation |
 
 > New blueprints are added regularly. To propose or contribute one, see [CONTRIBUTING.md](CONTRIBUTING.md).

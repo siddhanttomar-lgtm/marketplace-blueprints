@@ -13,11 +13,12 @@
 #
 
 image:
-  repository: n8nio/n8n
+  repository: registry.e2enetworks.net/marketplace-blueprint/n8n
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
-imagePullSecrets: []
+  tag: "1.122.4"
+imagePullSecrets:
+  - name: registry-pull-secret
 
 # The Name to use for the chart. Will be the prefix of all resources aka. The Chart.Name (default is 'n8n')
 nameOverride:

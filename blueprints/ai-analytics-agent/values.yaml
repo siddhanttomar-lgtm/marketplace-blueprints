@@ -1,12 +1,14 @@
+agentName: "Analytics Agent"
+
 openclaw:
   image:
-    repository: ghcr.io/openclaw/openclaw
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
     tag: "slim"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   storage:
     size: "5Gi"
   # REQUIRED: Gateway auth token — change before production
-  gatewayToken: ""
+  gatewayToken: "Analytics@12345"
   # At least one AI API key required (Anthropic or OpenAI recommended)
   anthropicApiKey: ""
   openaiApiKey: ""
@@ -37,11 +39,11 @@ telegram:
 
 umami:
   image:
-    repository: ghcr.io/umami-software/umami
+    repository: registry.e2enetworks.net/marketplace-blueprint/umami
     tag: "3.1.0"
-    pullPolicy: IfNotPresent
-  adminPassword: ""
-  appSecret: ""
+    pullPolicy: Always
+  adminPassword: "Umami@12345"
+  appSecret: "umami-secret-change-in-production"
   websiteName: ""
   websiteDomain: ""
   resources:
@@ -54,9 +56,9 @@ umami:
 
 umamiMcp:
   image:
-    repository: ghcr.io/mittwald/umami-mcp
-    tag: "latest"
-    pullPolicy: IfNotPresent
+    repository: registry.e2enetworks.net/marketplace-blueprint/umami-mcp
+    tag: "sha-ca8e900"
+    pullPolicy: Always
   resources:
     requests:
       cpu: "50m"
@@ -67,11 +69,32 @@ umamiMcp:
 
 postgresql:
   enabled: true
+  global:
+    imagePullSecrets:
+      - registry-pull-secret
+    security:
+      allowInsecureImages: true
+  image:
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/postgresql
+    tag: latest
+    pullPolicy: Always
+  volumePermissions:
+    image:
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/os-shell
+      tag: latest
+      pullPolicy: Always
+  metrics:
+    image:
+      registry: quay.io
+      repository: prometheuscommunity/postgres-exporter
+      pullPolicy: Always
   auth:
     database: "umami"
     username: "umami"
-    password: ""
-    postgresPassword: ""
+    password: "Umami@DB12345"
+    postgresPassword: "Postgres@Root123"
   architecture: standalone
   primary:
     initdb:

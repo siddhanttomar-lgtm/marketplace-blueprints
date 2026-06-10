@@ -13,7 +13,8 @@ global:
   ## imagePullSecrets:
   ##   - myRegistryKeySecretName
   ##
-  imagePullSecrets: []
+  imagePullSecrets:
+    - registry-pull-secret
   ## @param global.defaultStorageClass Global default StorageClass for Persistent Volume(s)
   ## @param global.storageClass DEPRECATED: use global.defaultStorageClass instead
   ##
@@ -23,7 +24,7 @@ global:
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   postgresql:
     ## @param global.postgresql.fullnameOverride Full chart name (overrides `fullnameOverride`)
     ## @param global.postgresql.auth.postgresPassword Password for the "postgres" admin user (overrides `auth.postgresPassword`)
@@ -125,9 +126,9 @@ diagnosticMode:
 ## @param image.debug Specify if debug values should be set
 ##
 image:
-  registry: registry-1.docker.io
-  repository: bitnami/postgresql
-  tag: latest
+  registry: registry.e2enetworks.net
+  repository: marketplace-blueprint/postgresql
+  tag: 17.4.0-debian-12-r6
   digest: ""
   ## Specify a imagePullPolicy
   ## ref: https://kubernetes.io/docs/concepts/containers/images/#pre-pulled-images
@@ -1641,9 +1642,9 @@ volumePermissions:
   ## @param volumePermissions.image.pullSecrets Init container volume-permissions image pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/os-shell
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/os-shell
+    tag: 12-debian-12-r65
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.
@@ -1754,9 +1755,9 @@ metrics:
   ## @param metrics.image.pullSecrets Specify image pull secrets
   ##
   image:
-    registry: registry-1.docker.io
-    repository: bitnami/postgres-exporter
-    tag: latest
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/postgres-exporter
+    tag: 0.19.0-debian-12-r0
     digest: ""
     pullPolicy: IfNotPresent
     ## Optionally specify an array of imagePullSecrets.

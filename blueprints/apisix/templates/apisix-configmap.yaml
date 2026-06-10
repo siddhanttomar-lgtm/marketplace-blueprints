@@ -1,0 +1,35 @@
+# APISIX gateway config — uses localhost etcd (all containers share Pod network)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-apisix-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  config.yaml: |
+    apisix:
+      node_listen: 9080
+      enable_ipv6: false
+
+    deployment:
+      role: traditional
+      role_traditional:
+        config_provider: etcd
+      admin:
+        allow_admin:
+          - 0.0.0.0/0
+        admin_key:
+          - name: "admin"
+            key: {{ .Values.apisix.adminCredentials.admin | quote }}
+            role: admin
+          - name: "viewer"
+            key: {{ .Values.apisix.adminCredentials.viewer | quote }}
+            role: viewer
+      etcd:
+        host:
+          - "http://127.0.0.1:2379"
+        prefix: "/apisix"
+        timeout: 30

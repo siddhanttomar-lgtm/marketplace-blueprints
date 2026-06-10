@@ -1,6 +1,7 @@
 apiVersion: v2
+appVersion: 1.0.0
+description: Open WebUI + LiteLLM Router + Ollama — Private AI Workspace with multi-model
+  support
 name: open-webui
-description: Open WebUI + Ollama — Private LLM Workspace
 type: application
 version: 1.0.0
-appVersion: "1.0.0"

@@ -1,0 +1,73 @@
+{{- if .Values.kibana.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-kibana
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kibana
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kibana
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+      containers:
+        - name: kibana
+          image: {{ .Values.kibana.image }}
+          env:
+            - name: ELASTICSEARCH_HOSTS
+              value: {{ include "vss.elasticsearchUrl" . | quote }}
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+            - name: SERVER_PORT
+              value: {{ .Values.kibana.port | quote }}
+            - name: SERVER_BASEPATH
+              value: ""
+            - name: MONITORING_ENABLED
+              value: "false"
+            - name: TELEMETRY_ENABLED
+              value: "false"
+            - name: XPACK_SECURITY_ENABLED
+              value: "false"
+            - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+              value: "a-random-32-char-string-for-kibana"
+          ports:
+            - containerPort: {{ .Values.kibana.port }}
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: {{ .Values.kibana.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: {{ .Values.kibana.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: kibana-config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+              readOnly: true
+          resources:
+            {{- toYaml .Values.kibana.resources | nindent 12 }}
+      volumes:
+        - name: kibana-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-kibana-config
+{{- end }}

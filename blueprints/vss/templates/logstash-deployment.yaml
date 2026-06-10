@@ -1,0 +1,364 @@
+{{- if .Values.logstash.enabled }}
+# ── Pipeline ConfigMap ────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-logstash-pipeline
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    http.port: {{ .Values.logstash.apiPort }}
+    pipeline.workers: 2
+    pipeline.batch.size: 125
+    log.level: warn
+  pipelines.yml: |
+    - pipeline.id: mdx
+      path.config: "/usr/share/logstash/pipeline/mdx.conf"
+  mdx.conf: |
+    # ── Separate inputs per topic with per-class protobuf mapping ──────────────
+    # Class names are configurable via logstash.protobuf.classNames in values.yaml.
+    # Defaults match Docker Compose reference (nv.* namespace from NVIDIA MDX bundle).
+    input {
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-raw"]
+        group_id => "logstash-mdx-raw"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.frame }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-behavior"]
+        group_id => "logstash-mdx-behavior"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.behavior }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-alerts"]
+        group_id => "logstash-mdx-alerts"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.incident }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-vlm"]
+        group_id => "logstash-mdx-vlm"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.vlm }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-space-utilization"]
+        group_id => "logstash-mdx-space"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.spaceUtilization }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-bev"]
+        group_id => "logstash-mdx-bev"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.bev }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-events"]
+        group_id => "logstash-mdx-events"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.behavior }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-incidents"]
+        group_id => "logstash-mdx-incidents"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.incident }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-vlm-incidents"]
+        group_id => "logstash-mdx-vlm-incidents"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.incident }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-frames"]
+        group_id => "logstash-mdx-frames"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.frame }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-mtmc"]
+        group_id => "logstash-mdx-mtmc"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => plain
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-amr"]
+        group_id => "logstash-mdx-amr"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => plain
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-vlm-alerts"]
+        group_id => "logstash-mdx-vlm-alerts"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.behavior }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+      kafka {
+        bootstrap_servers => "{{ include "vss.fullname" . }}-kafka:{{ .Values.kafka.port }}"
+        topics => ["mdx-embed-filtered"]
+        group_id => "logstash-mdx-embed-filtered"
+        consumer_threads => {{ .Values.logstash.consumerThreads | default 4 }}
+        decorate_events => basic
+        codec => protobuf {
+          class_name => "{{ .Values.logstash.protobuf.classNames.vlm }}"
+          include_path => ["/usr/share/logstash/proto/schema_pb.rb", "/usr/share/logstash/proto/ext_pb.rb"]
+        }
+      }
+    }
+    filter {
+      # ── Timestamp ────────────────────────────────────────────────────────────
+      if ![@timestamp] {
+        ruby { code => "event.set('@timestamp', LogStash::Timestamp.now)" }
+      }
+
+      # ── Deduplication fingerprint (SHA1-HMAC per event) ───────────────────
+      # document_id in the ES output is set to this fingerprint so re-delivered
+      # Kafka messages overwrite rather than duplicate the ES document.
+      fingerprint {
+        source        => ["sensor_id", "timestamp_ns", "sequence_id"]
+        target        => "[@metadata][fingerprint]"
+        method        => "SHA1"
+        key           => "vss-blueprint-mdx"
+        concatenate_sources => true
+      }
+
+      # ── Field transformations ─────────────────────────────────────────────
+      ruby {
+        code => "
+          # Drop large binary embedding arrays — not needed in ES full-text search
+          event.remove('[bbox3d]')
+          event.remove('[embedding]')
+          event.remove('[feature_vector]')
+
+          # Flatten repeated locations field into flat x/y scalars
+          locs = event.get('[locations]')
+          if locs.is_a?(Array) && locs.length >= 2
+            event.set('[location_x]', locs[0].to_f)
+            event.set('[location_y]', locs[1].to_f)
+            event.remove('[locations]')
+          end
+        "
+      }
+
+      mutate {
+        add_field => {
+          "pipeline_version" => "3.1.0"
+          "source"           => "vss-blueprint"
+        }
+        # Expose the Kafka topic for use in the index name
+        copy => { "[@metadata][kafka][topic]" => "[@metadata][topic]" }
+      }
+    }
+    output {
+      elasticsearch {
+        hosts           => ["{{ include "vss.elasticsearchUrl" . }}"]
+        index           => "mdx-%{[@metadata][topic]}-%{+YYYY.MM.dd}"
+        pipeline        => "mdx-timestamp-pipeline"
+        document_id     => "%{[@metadata][fingerprint]}"
+        action          => "index"
+      }
+    }
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-logstash
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logstash
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logstash
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+      initContainers:
+        - name: wait-for-es-init
+          image: registry.e2enetworks.net/marketplace-blueprint/curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Elasticsearch to be ready with templates..."
+              MAX_ATTEMPTS=60
+              for i in $(seq 1 $MAX_ATTEMPTS); do
+                if curl -sf "{{ include "vss.elasticsearchUrl" . }}/_index_template/metropolis_template" > /dev/null 2>&1; then
+                  echo "Elasticsearch is ready for Logstash!"
+                  exit 0
+                fi
+                echo "[$i/$MAX_ATTEMPTS] Elasticsearch templates not ready, waiting 10s..."
+                sleep 10
+              done
+              echo "ERROR: Elasticsearch not ready within 10 minutes"
+              exit 1
+          resources:
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+        - name: install-protobuf-plugin
+          image: {{ .Values.logstash.image }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Installing logstash-codec-protobuf..."
+              logstash-plugin install logstash-codec-protobuf
+              echo "Copying plugin gems to shared volume..."
+              cp -a /usr/share/logstash/vendor/bundle/. /shared-gems/
+          volumeMounts:
+            - name: logstash-gems
+              mountPath: /shared-gems
+      containers:
+        - name: logstash
+          image: {{ .Values.logstash.image }}
+          env:
+            - name: LS_JAVA_OPTS
+              value: {{ .Values.logstash.javaOpts | quote }}
+            - name: PIPELINE_WORKERS
+              value: "2"
+            - name: GEM_HOME
+              value: /shared-gems
+          ports:
+            - containerPort: {{ .Values.logstash.beatsPort }}
+              name: beats
+            - containerPort: {{ .Values.logstash.apiPort }}
+              name: api
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.logstash.apiPort }}
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.logstash.apiPort }}
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.logstash.resources | nindent 12 }}
+          volumeMounts:
+            - name: pipeline-config
+              mountPath: /usr/share/logstash/config/logstash.yml
+              subPath: logstash.yml
+            - name: pipeline-config
+              mountPath: /usr/share/logstash/config/pipelines.yml
+              subPath: pipelines.yml
+            - name: pipeline-config
+              mountPath: /usr/share/logstash/pipeline/mdx.conf
+              subPath: mdx.conf
+            - name: proto-defs
+              mountPath: /usr/share/logstash/proto
+            - name: logstash-gems
+              mountPath: /shared-gems
+      volumes:
+        - name: pipeline-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-logstash-pipeline
+        - name: proto-defs
+          configMap:
+            name: {{ include "vss.fullname" . }}-logstash-proto-defs
+        - name: logstash-gems
+          emptyDir: {}
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-logstash
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: logstash
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: beats
+      port: {{ .Values.logstash.beatsPort }}
+      targetPort: {{ .Values.logstash.beatsPort }}
+    - name: api
+      port: {{ .Values.logstash.apiPort }}
+      targetPort: {{ .Values.logstash.apiPort }}
+{{- end }}

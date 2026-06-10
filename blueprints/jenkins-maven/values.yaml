@@ -1,4 +1,27 @@
+global:
+  imagePullSecrets:
+    - registry-pull-secret
+  security:
+    allowInsecureImages: true
+
 jenkins:
+  image:
+    registry: registry.e2enetworks.net
+    repository: marketplace-blueprint/jenkins
+    tag: 2.516.2-debian-12-r0
+    pullPolicy: IfNotPresent
+  agent:
+    image:
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/jenkins-agent
+      tag: 0.3327.0-debian-12-r1
+      pullPolicy: IfNotPresent
+  volumePermissions:
+    image:
+      registry: registry.e2enetworks.net
+      repository: marketplace-blueprint/os-shell
+      tag: 12-debian-12-r65
+      pullPolicy: IfNotPresent
   jenkinsUser: admin
   jenkinsPassword: ""
 
@@ -54,7 +77,7 @@ jenkins:
   # Faster image pull = more time budget for Jenkins JVM startup.
   initContainers:
     - name: install-maven
-      image: maven:3.9-eclipse-temurin-17-alpine
+      image: registry.e2enetworks.net/marketplace-blueprint/maven:3.9-eclipse-temurin-17-alpine
       imagePullPolicy: IfNotPresent
       command:
         - sh

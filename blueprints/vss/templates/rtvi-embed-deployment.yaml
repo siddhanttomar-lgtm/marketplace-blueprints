@@ -1,0 +1,184 @@
+{{- if .Values.rtviEmbed.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-embed
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-embed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rtvi-embed
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rtvi-embed
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      runtimeClassName: nvidia
+      imagePullSecrets:
+        - name: nvcr-pull-secret
+      # Runs as user 1001 matching the container's built-in runtime user.
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: rtvi-embed
+          image: {{ .Values.rtviEmbed.image }}
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          # Container listens on 8000; K8s Service maps 8017 → 8000.
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            # ── Model ──────────────────────────────────────────────────────────
+            - name: MODEL_PATH
+              value: {{ .Values.rtviEmbed.modelPath | default "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p" | quote }}
+            - name: MODEL_IMPLEMENTATION_PATH
+              value: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
+            - name: MODEL_REPOSITORY_SCRIPT_PATH
+              value: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
+
+            # ── Auth ───────────────────────────────────────────────────────────
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nvcr-api-secret
+                  key: NGC_API_KEY
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nvcr-api-secret
+                  key: NGC_API_KEY
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-ngc
+                  key: HF_TOKEN
+
+            # ── GPU ────────────────────────────────────────────────────────────
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.deviceIds | default "all" | quote }}
+
+            # ── Kafka (only enabled when kafka.enabled=true) ───────────────────
+            - name: KAFKA_ENABLED
+              value: {{ .Values.kafka.enabled | quote }}
+            {{- if .Values.kafka.enabled }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "vss.kafkaBootstrap" . | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.rtviEmbed.kafkaTopic | default "vss-ingest" | quote }}
+            - name: ERROR_MESSAGE_TOPIC
+              value: {{ .Values.rtviEmbed.kafkaErrorTopic | default "vss-embed-errors" | quote }}
+            {{- end }}
+
+            # ── Redis ──────────────────────────────────────────────────────────
+            - name: REDIS_HOST
+              value: {{ include "vss.redisHost" . | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: REDIS_DB
+              value: "0"
+            - name: ENABLE_REDIS_ERROR_MESSAGES
+              value: "false"
+
+            # ── RTSP reconnect settings ────────────────────────────────────────
+            - name: RTVI_RTSP_RECONNECTION_INTERVAL
+              value: "5"
+            - name: RTVI_RTSP_RECONNECTION_WINDOW
+              value: "60"
+            - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+              value: "10"
+
+            # ── Asset download timeouts ────────────────────────────────────────
+            - name: ASSET_DOWNLOAD_TOTAL_TIMEOUT
+              value: "300"
+            - name: ASSET_DOWNLOAD_CONNECT_TIMEOUT
+              value: "10"
+
+            # ── Misc ───────────────────────────────────────────────────────────
+            - name: LOG_LEVEL
+              value: {{ .Values.rtviEmbed.logLevel | default "INFO" | quote }}
+            - name: VLM_BATCH_SIZE
+              value: {{ .Values.rtviEmbed.batchSize | default "1" | quote }}
+            - name: NUM_VLM_PROCS
+              value: {{ .Values.rtviEmbed.numVlmProcs | default "1" | quote }}
+            - name: NUM_GPUS
+              value: {{ .Values.rtviEmbed.numGpus | default "1" | quote }}
+            - name: INSTALL_PROPRIETARY_CODECS
+              value: "false"
+            - name: ENABLE_OTEL_MONITORING
+              value: "false"
+            - name: ENABLE_REQUEST_PROFILING
+              value: {{ .Values.rtviEmbed.enableRequestProfiling | default "false" | quote }}
+
+          # Model is ~10GB downloaded from HuggingFace; Triton build adds another 5–10 min.
+          # Initial delay of 1200s (20 min) covers worst-case cold start on slow networks.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8000/v1/ready"]
+            initialDelaySeconds: 1200
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8000/v1/ready"]
+            initialDelaySeconds: 1800
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+
+          resources:
+            requests:
+              memory: {{ .Values.rtviEmbed.resources.requests.memory }}
+              cpu: {{ .Values.rtviEmbed.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.rtviEmbed.resources.limits.memory }}
+              cpu: {{ .Values.rtviEmbed.resources.limits.cpu }}
+              nvidia.com/gpu: {{ .Values.rtviEmbed.gpuCount | default 1 | quote }}
+
+          volumeMounts:
+            # HuggingFace model cache — persists across pod restarts to avoid re-download
+            - name: rtvi-hf-cache
+              mountPath: /tmp/huggingface
+            # NGC model cache — persists compiled Triton model repo
+            - name: rtvi-ngc-model-cache
+              mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
+            # Triton model repository — rebuilt each start from the PVC-cached NGC model
+            - name: rtvi-triton-model-repo
+              mountPath: /tmp/triton_model_repo
+            # Shared memory for Triton inference (replaces ipc: host from Docker Compose)
+            - name: shm
+              mountPath: /dev/shm
+            # VST clip storage — read access to video clips written by vst-sensor.
+            # subPath exposes vst_data/streamer_videos/ at the path RTVI expects.
+            - name: vst-sensor-data
+              mountPath: /home/vst/vst_release/streamer_videos
+              subPath: streamer_videos
+
+      volumes:
+        - name: rtvi-hf-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-rtvi-hf-cache
+        - name: rtvi-ngc-model-cache
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-rtvi-ngc-model-cache
+        # Triton model repo is ephemeral; rebuilt from cached model on each start
+        - name: rtvi-triton-model-repo
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.rtviEmbed.shmSize | default "32Gi" }}
+        # Shared with vst-sensor — clips land at vst_data/streamer_videos/ inside this PVC
+        - name: vst-sensor-data
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-vst-sensor-data
+{{- end }}

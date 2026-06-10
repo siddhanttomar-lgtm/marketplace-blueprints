@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-streamprocessing
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-streamprocessing
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vst-streamprocessing
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.vst.streamprocessing.port }}
+      targetPort: {{ .Values.vst.streamprocessing.port }}
+    - name: rtsp
+      port: {{ .Values.vst.streamprocessing.rtspPort }}
+      targetPort: {{ .Values.vst.streamprocessing.rtspPort }}

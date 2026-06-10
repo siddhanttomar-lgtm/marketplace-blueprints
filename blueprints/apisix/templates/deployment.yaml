@@ -1,0 +1,201 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apisix
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: apisix
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: etcd
+          image: "{{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}"
+          imagePullPolicy: {{ .Values.etcd.image.pullPolicy }}
+          env:
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "yes"
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: "http://0.0.0.0:2379"
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: "http://127.0.0.1:2379"
+            - name: ETCD_DATA_DIR
+              value: "/bitnami/etcd/data"
+          ports:
+            - name: etcd
+              containerPort: 2379
+              protocol: TCP
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /bitnami/etcd
+          readinessProbe:
+            tcpSocket:
+              port: 2379
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 2379
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.etcd.resources | nindent 12 }}
+
+        - name: apisix
+          image: "{{ .Values.apisix.image.repository }}:{{ .Values.apisix.image.tag }}"
+          imagePullPolicy: {{ .Values.apisix.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "Waiting for etcd on 127.0.0.1:2379..."
+              until (echo > /dev/tcp/127.0.0.1/2379) 2>/dev/null; do
+                sleep 2
+              done
+              echo "etcd ready — starting APISIX"
+              exec /usr/bin/apisix start
+          ports:
+            - name: gateway
+              containerPort: 9080
+              protocol: TCP
+            - name: admin
+              containerPort: 9180
+              protocol: TCP
+          volumeMounts:
+            - name: apisix-config
+              mountPath: /usr/local/apisix/conf/config.yaml
+              subPath: config.yaml
+          readinessProbe:
+            tcpSocket:
+              port: 9080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 9080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    until (echo > /dev/tcp/127.0.0.1/9180) 2>/dev/null; do sleep 3; done
+                    PAYLOAD='{"plugins":{}}'
+                    LEN=${#PAYLOAD}
+                    KEY="{{ .Values.apisix.adminCredentials.admin }}"
+                    {
+                      printf "PUT /apisix/admin/global_rules/1 HTTP/1.1\r\n"
+                      printf "Host: 127.0.0.1:9180\r\n"
+                      printf "X-API-KEY: ${KEY}\r\n"
+                      printf "Content-Type: application/json\r\n"
+                      printf "Content-Length: ${LEN}\r\n"
+                      printf "Connection: close\r\n"
+                      printf "\r\n"
+                      printf "${PAYLOAD}"
+                    } > /dev/tcp/127.0.0.1/9180 2>/dev/null || true
+          resources:
+            {{- toYaml .Values.apisix.resources | nindent 12 }}
+
+        - name: dashboard
+          image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Patch index.html so the dashboard defaults to English on first visit.
+              # umi_locale is the localStorage key umi.js reads; default in binary is zh-CN.
+              # Idempotent: only sets if not already present in localStorage.
+              if ! grep -q 'umi_locale' /usr/local/apisix-dashboard/html/index.html 2>/dev/null; then
+                sed -i 's|<script src="/umi|<script>if(!localStorage.getItem("umi_locale")){localStorage.setItem("umi_locale","en-US");}</script><script src="/umi|' /usr/local/apisix-dashboard/html/index.html 2>/dev/null || true
+              fi
+              echo "Waiting for etcd on 127.0.0.1:2379..."
+              until wget -qO /dev/null http://127.0.0.1:2379/health 2>/dev/null; do
+                sleep 2
+              done
+              echo "etcd ready — starting Dashboard on port 9001"
+              exec /usr/local/apisix-dashboard/manager-api
+          ports:
+            - name: dashboard
+              containerPort: 9001
+              protocol: TCP
+          volumeMounts:
+            - name: dashboard-config
+              mountPath: /usr/local/apisix-dashboard/conf/conf.yaml
+              subPath: conf.yaml
+          readinessProbe:
+            tcpSocket:
+              port: 9001
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 9001
+            initialDelaySeconds: 40
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+
+        # Sidecar: openresty proxy in front of dashboard:9001.
+        # Fixes blank-plugin-page by mocking /apisix/admin/get_key and wrapping
+        # /apisix/admin/plugins/list. See proxy-configmap.yaml for details.
+        - name: proxy
+          image: "{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag }}"
+          imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+          ports:
+            - name: proxy
+              containerPort: 9000
+              protocol: TCP
+          volumeMounts:
+            - name: proxy-config
+              mountPath: /usr/local/openresty/nginx/conf/nginx.conf
+              subPath: nginx.conf
+          readinessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+
+      volumes:
+        - name: apisix-config
+          configMap:
+            name: {{ .Release.Name }}-apisix-config
+        - name: dashboard-config
+          configMap:
+            name: {{ .Release.Name }}-dashboard-config
+        - name: proxy-config
+          configMap:
+            name: {{ .Release.Name }}-proxy-config
+        - name: etcd-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-etcd-data

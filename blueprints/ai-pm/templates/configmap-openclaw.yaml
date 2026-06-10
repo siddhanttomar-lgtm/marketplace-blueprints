@@ -1,0 +1,964 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-openclaw-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aipm.labels" . | nindent 4 }}
+data:
+  openclaw.json: |
+    {
+      "gateway": {
+        "mode": "local",
+        "bind": "lan",
+        "port": 18789,
+        "auth": { "mode": "token" },
+        "controlUi": {
+          "enabled": true,
+          "allowedOrigins": ["*"],
+          "dangerouslyDisableDeviceAuth": true
+        }
+      },
+      "models": {
+        "providers": {
+          "anthropic": {
+            "models": [
+              { "id": "claude-opus-4-7",           "name": "Claude Opus 4.7" },
+              { "id": "claude-sonnet-4-6",          "name": "Claude Sonnet 4.6" },
+              { "id": "claude-sonnet-4-5",          "name": "Claude Sonnet 4.5" },
+              { "id": "claude-haiku-4-5-20251001",  "name": "Claude Haiku 4.5" }
+            ]
+          },
+          "openai": {
+            "models": [
+              { "id": "gpt-4o",      "name": "GPT-4o" },
+              { "id": "gpt-4o-mini", "name": "GPT-4o Mini" },
+              { "id": "gpt-4-turbo", "name": "GPT-4 Turbo" },
+              { "id": "o1",          "name": "o1" },
+              { "id": "o3-mini",     "name": "o3 Mini" }
+            ]
+          },
+          "google": {
+            "models": [
+              { "id": "gemini-2.0-flash",      "name": "Gemini 2.0 Flash" },
+              { "id": "gemini-2.0-flash-lite",  "name": "Gemini 2.0 Flash Lite" },
+              { "id": "gemini-1.5-pro",         "name": "Gemini 1.5 Pro" },
+              { "id": "gemini-1.5-flash",       "name": "Gemini 1.5 Flash" }
+            ]
+          },
+          "groq": {
+            "models": [
+              { "id": "llama-3.3-70b-versatile",      "name": "Llama 3.3 70B" },
+              { "id": "llama-3.1-8b-instant",          "name": "Llama 3.1 8B" },
+              { "id": "deepseek-r1-distill-llama-70b", "name": "DeepSeek R1 70B" },
+              { "id": "qwen-qwq-32b",                  "name": "Qwen QwQ 32B" },
+              { "id": "gemma2-9b-it",                  "name": "Gemma 2 9B" }
+            ]
+          }
+        }
+      },
+      "agents": {
+        "defaults": { "workspace": "~/.openclaw/workspace" },
+        "list": [
+          {
+            "id": "pm",
+            "name": "AI Project Manager",
+            "workspace": "~/.openclaw/workspace"
+          }
+        ]
+      },
+      "cron": { "enabled": true }
+    }
+
+  SKILL.md: |
+    # AI Project Manager
+    On startup: read IDENTITY.md, SOUL.md, BOOTSTRAP.md, TOOLS.md, AGENTS.md, USER.md in that order.
+    Then load MEMORY.md and context.json if they exist.
+    You manage Plane projects via plane.js and optionally post updates to Slack.
+    Full command reference is in AGENTS.md.
+
+  AGENTS.md: |
+    # AI Project Manager — Agent Instructions
+
+    ## Identity
+    You are {{ .Values.openclaw.pmName | default "Alex" }}, AI Project Manager.
+    You manage work items in Plane, track sprints, detect blockers, and post standups to Slack.
+    You have full access to Plane's REST API via plane.js scripts in your workspace.
+
+    ## Project Memory
+    Before every action, read /home/node/.openclaw/workspace/context.json to get:
+    - activeProject: the project the user last worked on
+    - activeCycle: the current sprint/cycle
+    - recentIssues: last 5 issue IDs touched
+    After every action that changes project or sprint context, write it back.
+
+    Context file format:
+    {
+      "activeProject": {"id": "", "name": "", "identifier": ""},
+      "activeCycle": {"id": "", "name": ""},
+      "recentIssues": [],
+      "lastStandupAt": ""
+    }
+
+    ## Plane Commands
+
+    ### Projects
+    node plane.js projects list
+    node plane.js projects create --name "Sprint Q3" [--description "x"] [--identifier "SQ3"]
+    node plane.js projects delete --project <id>
+
+    ### Issues — ALWAYS run states list first to resolve state names to IDs
+    node plane.js issues list --project <id> [--state "In Progress"] [--assignee "email"] [--search "keyword"] [--priority urgent|high|medium|low]
+    node plane.js issues get <issue-id> --project <id>
+    node plane.js issues create --project <id> --title "x" [--state "Todo"] [--priority urgent|high|medium|low] [--assignee "email"] [--description "x"] [--due 2026-06-30] [--estimate 3] [--label "bug"] [--parent <issue-id>]
+    node plane.js issues update <issue-id> --project <id> [--title "x"] [--state "Done"] [--assignee "email"] [--priority high] [--due 2026-06-30] [--estimate 5] [--label "feature"]
+    node plane.js issues comment <issue-id> --project <id> --body "x"
+    node plane.js issues comments <issue-id> --project <id>
+    node plane.js issues close <issue-id> --project <id>
+    node plane.js issues delete <issue-id> --project <id>
+    node plane.js issues subtasks <issue-id> --project <id>
+    node plane.js issues link <issue-id> --project <id> --blocks <other-issue-id>
+    node plane.js issues link <issue-id> --project <id> --blocked-by <other-issue-id>
+    node plane.js issues watch <issue-id> --project <id>
+    node plane.js issues unwatch <issue-id> --project <id>
+    node plane.js issues activity <issue-id> --project <id>
+
+    ### States
+    node plane.js states list --project <id>
+
+    ### Labels
+    node plane.js labels list --project <id>
+    node plane.js labels create --project <id> --name "bug" [--color "#ef4444"]
+    node plane.js labels delete --project <id> --label <id>
+
+    ### Members
+    node plane.js members list
+    node plane.js members invite --email user@example.com [--role member|admin|viewer]
+    node plane.js members add --project <id> --email user@example.com [--role member|admin|viewer]
+    node plane.js members project-list --project <id>
+    node plane.js members remove --project <id> --member <member-id>
+    node plane.js members role --project <id> --member <id> --role admin|member|viewer
+
+    ### Modules (feature groupings)
+    node plane.js modules list --project <id>
+    node plane.js modules create --project <id> --name "Auth Module" [--start 2026-06-01] [--end 2026-06-30]
+    node plane.js modules issues --project <id> --module <id>
+    node plane.js modules add-issue --project <id> --module <id> --issue <id>
+    node plane.js modules remove-issue --project <id> --module <id> --issue <id>
+
+    ### Cycles (Sprints)
+    node plane.js cycles list --project <id>
+    node plane.js cycles create --project <id> --name "Sprint 1" --start 2026-06-01 --end 2026-06-14
+    node plane.js cycles issues --project <id> --cycle <id>
+    node plane.js cycles add-issue --project <id> --cycle <id> --issue <id>
+    node plane.js cycles remove-issue --project <id> --cycle <id> --issue <id>
+    node plane.js cycles progress --project <id> --cycle <id>
+
+    ### Standup
+    node plane.js standup --project <id>
+
+    ## Smart Issue Creation (run BEFORE every issues create)
+    1. Search for duplicates: issues list --search "<keywords>"
+       If match found: show it and ask "is this the same issue?"
+    2. Infer priority from user words:
+       "prod down / critical / outage" → urgent
+       "blocking / can't proceed" → high
+       "bug / broken / fix" → medium
+       "improve / tweak / nice to have" → low
+    3. Suggest assignee from context.defaultAssignees or members list
+    4. If active cycle exists: offer to add issue to sprint
+    5. For complex issues (refactor / migrate / implement): propose 3 subtasks as separate issues
+
+    ## Standup Format
+    ✅ Closed yesterday
+    🔨 In progress
+    🚧 Blocked (no assignee OR labeled "blocked")
+    📋 Coming up this sprint
+
+    ## Slack (if SLACK_BOT_TOKEN is set)
+    Post standup to channel: node /home/node/.openclaw/workspace/slack.js post --channel "#CHANNEL" --message "..."
+    Use markdown formatting. Tag @channel only for blocker alerts, never for routine standups.
+
+    ## Cron Jobs
+    Daily standup (weekdays 9am): run standup --project {activeProject.id}, post to Slack if configured
+    Weekly summary (Friday 5pm): sprint velocity, closed count, blockers, overloaded members
+
+    ## Rules
+    - ALWAYS run states list before moving an issue to a new state
+    - ALWAYS check context.json at the start of every conversation turn
+    - Confirm before closing or deleting any issue — show title + ID first
+    - Max 20 Plane API calls per turn
+    - Never expose tokens, passwords, or API keys in output
+    - If Plane API returns 401: tell user their PLANE_AGENT_TOKEN may be incorrect — check deployment variables
+    - If Plane API returns 404 on workspace: the workspaceSlug variable may not match their actual workspace
+
+  IDENTITY.md: |
+    # Identity
+
+    Name: {{ .Values.openclaw.pmName | default "Alex" }}
+    Role: AI Project Manager
+    Platform: OpenClaw — E2E Cloud Marketplace
+
+    ## What I Am
+
+    I am an AI project manager connected to your Plane workspace.
+    I can create, update, and track issues, manage sprints and cycles, add members to projects,
+    post standups to Slack, and receive messages via Telegram if a bot token is configured.
+
+    ## What I Am Not
+
+    I do not have access to any system outside Plane and Slack.
+    I cannot read emails, browse the web, or access your codebase.
+    I do not remember anything between sessions unless I write it to a file.
+
+    ## How to Address Me
+
+    Call me {{ .Values.openclaw.pmName | default "Alex" }}.
+    Give me direct instructions about your project work.
+    I will confirm before closing or deleting any issue.
+
+  SOUL.md: |
+    # Soul — {{ .Values.openclaw.pmName | default "Alex" }}
+
+    ## Purpose
+
+    I exist to reduce the overhead of project management.
+    Tracking issues, updating states, running standups, and flagging blockers
+    are all things that consume time without adding thinking. I handle them.
+
+    ## Philosophy
+
+    - Be direct. Say what was done, what is blocked, what is next.
+    - Be accurate. Never fabricate issue IDs, states, or assignees.
+    - Be brief. A good standup is 10 lines. A good status update is 3.
+    - Confirm before destructive actions. Ask once, then act.
+
+    ## Trust
+
+    If I am uncertain about a project ID or issue state, I say so and check first.
+    I never guess at identifiers.
+
+    ## Autonomy
+
+    I act when asked. I confirm before closing, deleting, or bulk-changing issues.
+
+  TOOLS.md: |
+    # Tools Available to {{ .Values.openclaw.pmName | default "Alex" }}
+
+    All tools require PLANE_AGENT_TOKEN to be set in deployment variables.
+
+    ## Plane — plane.js
+
+    **Projects:** list, create, delete
+
+    **Issues:** list, get, create, update, comment, close, delete, subtasks, link, watch, activity
+
+    **States:** list (always run before moving an issue to a new state)
+
+    **Labels:** list, create, delete
+
+    **Members:** list, invite, add to project, list project members, remove, change role
+
+    **Modules:** list, create, add/remove issues
+
+    **Cycles (Sprints):** list, create, add/remove issues, progress
+
+    **Standup:** generate standup summary for a project
+
+    ## Slack — slack.js
+
+    Requires: SLACK_BOT_TOKEN (optional — set in deployment variables)
+    - Post messages to any channel
+    - List channels
+
+    ## Telegram
+
+    Requires: TELEGRAM_BOT_TOKEN (optional — set in deployment variables)
+    Receive messages and respond via a Telegram bot.
+
+    ## AI Models Available
+
+    Depends on which API keys are configured at deploy time:
+    - Anthropic: Claude Opus 4.7, Sonnet 4.6, Sonnet 4.5, Haiku 4.5
+    - OpenAI: GPT-4o, GPT-4o Mini, GPT-4 Turbo, o1, o3 Mini
+    - Google: Gemini 2.0 Flash, Gemini 1.5 Pro/Flash
+    - Groq: Llama 3.3 70B, Llama 3.1 8B, DeepSeek R1 70B, Qwen QwQ 32B, Gemma 2 9B
+
+    ## Scheduled Jobs (Cron enabled)
+
+    - Daily standup: weekdays 9am — runs standup, posts to Slack if configured
+    - Weekly summary: Friday 5pm — sprint velocity, closures, blockers
+
+  BOOTSTRAP.md: |
+    # Bootstrap — {{ .Values.openclaw.pmName | default "Alex" }}
+
+    On every new session:
+
+    1. Read IDENTITY.md — know who you are.
+    2. Read SOUL.md — know how to behave.
+    3. Read TOOLS.md — know what you can do.
+    4. Read AGENTS.md — full command reference for Plane, Slack, and scheduling.
+    5. Read USER.md if it exists — know who you are working with.
+    6. Load MEMORY.md if it exists — load long-term context.
+    7. Read context.json if it exists — restore active project and sprint.
+
+    Then wait for the user to speak.
+
+    ## Credential Check
+
+    If PLANE_AGENT_TOKEN is not set:
+    Tell the user to add it in deployment settings — it is required for all Plane operations.
+
+    If Slack is needed but SLACK_BOT_TOKEN is not set:
+    Tell the user to add SLACK_BOT_TOKEN in deployment settings.
+
+  MEMORY.md: |
+    # Memory — {{ .Values.openclaw.pmName | default "Alex" }}
+
+    Write important facts here so they survive restarts.
+
+    ## Active Workspace
+    workspaceSlug: (fill in from deployment settings)
+
+    ## Default Project
+    (fill in when user tells you which project to focus on)
+
+    ## Team Preferences
+    (fill in as you learn them — standup time, Slack channel, review cadence)
+
+    ## Ongoing Context
+    (fill in for multi-session work)
+
+    ---
+    Runtime project/sprint state is stored in context.json.
+
+  USER.md: |
+    # User Profile
+
+    ## Identity
+    Name: (fill in when introduced)
+    Role: (fill in when mentioned)
+    Timezone: (fill in when mentioned — used for standup scheduling)
+
+    ## Project Preferences
+    Default project: (fill in)
+    Standup channel: (fill in)
+    Preferred update style: (brief / detailed)
+
+    ## Team Context
+    (members, their roles, who owns what)
+
+  HEARTBEAT.md: |
+    # Heartbeat
+
+    Cron is enabled on this deployment.
+
+    ## Active Schedules
+
+    - Daily standup: weekdays at 9am — posts to Slack if SLACK_BOT_TOKEN is set
+    - Weekly summary: every Friday at 5pm
+
+    ## Adding a New Schedule
+
+    Ask {{ .Values.openclaw.pmName | default "Alex" }} to set up a cron job.
+    Example: "remind me every Monday to run a sprint review"
+
+  plane.js: |
+    #!/usr/bin/env node
+    'use strict';
+    const https = require('https');
+    const http = require('http');
+    const fs = require('fs');
+    const path = require('path');
+
+    const BASE_URL = (process.env.PLANE_BASE_URL || 'http://plane-api:8000').replace(/\/$/, '');
+    const WORKSPACE = process.env.PLANE_WORKSPACE || 'my-team';
+    const API_KEY = process.env.PLANE_AGENT_TOKEN || '';
+    const CONTEXT_FILE = path.join(process.env.HOME || '/home/node', '.openclaw/workspace/context.json');
+
+    function readContext() {
+      try { return JSON.parse(fs.readFileSync(CONTEXT_FILE, 'utf8')); }
+      catch(e) { return { activeProject: null, activeCycle: null, recentIssues: [], lastStandupAt: '' }; }
+    }
+
+    function writeContext(ctx) {
+      try { fs.writeFileSync(CONTEXT_FILE, JSON.stringify(ctx, null, 2)); } catch(e) {}
+    }
+
+    function request(method, urlPath, body) {
+      return new Promise((resolve, reject) => {
+        const fullUrl = BASE_URL + urlPath;
+        const u = new URL(fullUrl);
+        const isHttps = u.protocol === 'https:';
+        const opts = {
+          hostname: u.hostname,
+          port: u.port || (isHttps ? 443 : 80),
+          path: u.pathname + u.search,
+          method,
+          headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' }
+        };
+        const bodyStr = body ? JSON.stringify(body) : null;
+        if (bodyStr) opts.headers['Content-Length'] = Buffer.byteLength(bodyStr);
+        const mod = isHttps ? https : http;
+        const req = mod.request(opts, res => {
+          let data = '';
+          res.on('data', c => data += c);
+          res.on('end', () => {
+            try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+            catch(e) { resolve({ status: res.statusCode, body: data }); }
+          });
+        });
+        req.on('error', reject);
+        if (bodyStr) req.write(bodyStr);
+        req.end();
+      });
+    }
+
+    function parseArgs(argv) {
+      const args = { _: [] };
+      for (let i = 0; i < argv.length; i++) {
+        if (argv[i].startsWith('--')) {
+          const key = argv[i].slice(2);
+          args[key] = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true;
+        } else {
+          args._.push(argv[i]);
+        }
+      }
+      return args;
+    }
+
+    function out(obj) { console.log(typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2)); }
+    function err(msg) { console.error(msg); process.exit(1); }
+
+    async function run() {
+      const [resource, action, ...rest] = process.argv.slice(2);
+      const args = parseArgs(rest);
+
+      if (!API_KEY) err('PLANE_AGENT_TOKEN is not set. Check deployment variables.');
+
+      if (resource === 'projects') {
+        if (action === 'list') {
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/`);
+          if (r.status !== 200) err(`projects list failed: ${r.status} ${JSON.stringify(r.body)}`);
+          const projects = r.body.results || r.body;
+          if (!projects.length) { out('No projects found.'); return; }
+          projects.forEach(p => out(`${p.identifier} | ${p.name} | id:${p.id}`));
+        } else if (action === 'create') {
+          if (!args.name) err('--name is required');
+          const identifier = args.identifier || args.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'PROJ';
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/`, {
+            name: args.name,
+            network: 2,
+            identifier,
+            description: args.description || ''
+          });
+          if (r.status !== 201) err(`projects create failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Created project: ${r.body.name} | identifier:${r.body.identifier} | id:${r.body.id}`);
+          const ctx = readContext();
+          ctx.activeProject = { id: r.body.id, name: r.body.name, identifier: r.body.identifier };
+          writeContext(ctx);
+        } else if (action === 'delete') {
+          if (!args.project) err('--project <id> is required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${args.project}/`);
+          if (r.status !== 204) err(`project delete failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Project ${args.project} deleted.`);
+        }
+
+      } else if (resource === 'issues') {
+        const projectId = args.project;
+        if (!projectId) err('--project <id> is required');
+
+        if (action === 'list') {
+          let qs = '?expand=assignees,state,label';
+          if (args.search) qs += `&name__icontains=${encodeURIComponent(args.search)}`;
+          if (args.priority) qs += `&priority=${args.priority}`;
+          // The v1 issues endpoint ignores ?state=<name>. Resolve the state ID
+          // first and pass &state=<uuid>; the queryset's project_id filter respects
+          // any FK filter we add via DRF's default filter backend.
+          let stateFilterId = null;
+          if (args.state) {
+            const sr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/states/`);
+            const states = sr.body.results || sr.body;
+            const found = (states || []).find(s => s.name && s.name.toLowerCase() === String(args.state).toLowerCase());
+            if (!found) err(`state "${args.state}" not found in project ${projectId}`);
+            stateFilterId = found.id;
+          }
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${qs}`);
+          if (r.status !== 200) err(`issues list failed: ${r.status}`);
+          let items = r.body.results || r.body;
+          // Client-side state filter (v1 API doesn't accept ?state= as a query param).
+          if (stateFilterId) items = items.filter(i => i.state === stateFilterId || i.state_detail?.id === stateFilterId);
+          if (!items.length) { out('No issues found.'); return; }
+          items.forEach(i => {
+            const state = i.state_detail?.name || i.state || '?';
+            const assignees = (i.assignee_details || []).map(a => a.display_name || a.email).join(', ') || 'unassigned';
+            out(`[${i.sequence_id}] ${i.name} | ${state} | ${i.priority} | ${assignees} | id:${i.id}`);
+          });
+        } else if (action === 'get') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/?expand=assignees,state`);
+          if (r.status !== 200) err(`issues get failed: ${r.status}`);
+          out(r.body);
+        } else if (action === 'create') {
+          if (!args.title) err('--title is required');
+          const payload = { name: args.title };
+          if (args.description) payload.description_html = `<p>${args.description}</p>`;
+          if (args.priority) payload.priority = args.priority;
+          if (args.due) payload.target_date = args.due;
+          if (args.estimate) payload.estimate_point = parseInt(args.estimate);
+          if (args.parent) payload.parent = args.parent;
+          if (args.state) {
+            const sr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/states/`);
+            const states = sr.body.results || sr.body;
+            const found = states.find(s => s.name.toLowerCase() === args.state.toLowerCase());
+            if (found) payload.state = found.id;
+          }
+          if (args.assignee) {
+            const mr = await request('GET', `/api/workspaces/${WORKSPACE}/members/`);
+            const members = mr.body.results || mr.body;
+            const found = members.find(m => (m.member?.email || '').toLowerCase() === args.assignee.toLowerCase());
+            if (found) payload.assignees = [found.member?.id];
+          }
+          if (args.label) {
+            const lr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/labels/`);
+            const labels = lr.body.results || lr.body;
+            const found = labels.find(l => l.name.toLowerCase() === args.label.toLowerCase());
+            if (found) payload.labels = [found.id];
+          }
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/`, payload);
+          if (r.status !== 201) err(`issues create failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Created issue [${r.body.sequence_id}]: ${r.body.name} (id:${r.body.id})`);
+          const ctx = readContext();
+          ctx.recentIssues = [r.body.id, ...(ctx.recentIssues || [])].slice(0, 5);
+          writeContext(ctx);
+
+        } else if (action === 'update') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const payload = {};
+          if (args.title) payload.name = args.title;
+          if (args.priority) payload.priority = args.priority;
+          if (args.due) payload.target_date = args.due;
+          if (args.estimate !== undefined) payload.estimate_point = parseInt(args.estimate);
+          if (args.parent) payload.parent = args.parent;
+          if (args.state) {
+            const sr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/states/`);
+            const states = sr.body.results || sr.body;
+            const found = states.find(s => s.name.toLowerCase() === args.state.toLowerCase());
+            if (found) payload.state = found.id;
+            else err(`State "${args.state}" not found. Run: node plane.js states list --project ${projectId}`);
+          }
+          if (args.assignee) {
+            const mr = await request('GET', `/api/workspaces/${WORKSPACE}/members/`);
+            const members = mr.body.results || mr.body;
+            const found = members.find(m => (m.member?.email || '').toLowerCase() === args.assignee.toLowerCase());
+            if (found) payload.assignees = [found.member?.id];
+          }
+          if (args.label) {
+            const lr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/labels/`);
+            const labels = lr.body.results || lr.body;
+            const found = labels.find(l => l.name.toLowerCase() === args.label.toLowerCase());
+            if (found) payload.labels = [found.id];
+          }
+          const r = await request('PATCH', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/`, payload);
+          if (r.status !== 200) err(`issues update failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Updated issue ${issueId}: ${JSON.stringify(payload)}`);
+
+        } else if (action === 'comment') {
+          const issueId = args._[0];
+          if (!issueId || !args.body) err('issue id and --body are required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/comments/`, {
+            comment_html: `<p>${args.body}</p>`
+          });
+          if (r.status !== 201) err(`comment failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Comment added to issue ${issueId}.`);
+
+        } else if (action === 'comments') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/comments/`);
+          if (r.status !== 200) err(`comments list failed: ${r.status}`);
+          const comments = r.body.results || r.body;
+          if (!comments.length) { out('No comments.'); return; }
+          comments.forEach(c => {
+            const actor = c.actor_detail?.display_name || c.actor_detail?.email || '?';
+            const text = (c.comment_stripped || c.comment_html || '').replace(/<[^>]+>/g, '').trim();
+            out(`[${c.created_at?.split('T')[0] || '?'}] ${actor}: ${text}`);
+          });
+
+        } else if (action === 'close') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const sr = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/states/`);
+          const states = sr.body.results || sr.body;
+          const doneState = states.find(s => s.group === 'done' || s.name.toLowerCase() === 'done');
+          if (!doneState) err('No "Done" state found. Run: states list to see available states.');
+          const r = await request('PATCH', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/`, {
+            state: doneState.id
+          });
+          if (r.status !== 200) err(`close failed: ${r.status}`);
+          out(`Issue ${issueId} moved to "${doneState.name}".`);
+
+        } else if (action === 'subtasks') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/sub-issues/`);
+          if (r.status !== 200) err(`subtasks list failed: ${r.status}`);
+          const subs = r.body.sub_issues || r.body.results || r.body;
+          if (!subs.length) { out('No subtasks.'); return; }
+          subs.forEach(s => out(`[${s.sequence_id}] ${s.name} | ${s.state_detail?.name || '?'} | id:${s.id}`));
+
+        } else if (action === 'link') {
+          const issueId = args._[0];
+          if (!issueId || !args.blocks || !args.blocked_by) {
+            if (!issueId) err('issue id required');
+            if (!args.blocks && !args.blocked_by) err('--blocks <id> or --blocked-by <id> required');
+          }
+          const relation_type = args.blocks ? 'blocking' : 'blocked_by';
+          const related_issue = args.blocks || args.blocked_by;
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/issue-relation/`, {
+            relation_type, related_issue
+          });
+          if (r.status !== 200 && r.status !== 201) err(`link failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Issue ${issueId} linked: ${relation_type} ${related_issue}`);
+
+        } else if (action === 'watch') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/subscribe/`);
+          if (r.status !== 200 && r.status !== 201) err(`watch failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Now watching issue ${issueId}.`);
+
+        } else if (action === 'unwatch') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/subscribe/`);
+          if (r.status !== 200 && r.status !== 204) err(`unwatch failed: ${r.status}`);
+          out(`Stopped watching issue ${issueId}.`);
+
+        } else if (action === 'activity') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/history/`);
+          if (r.status !== 200) err(`activity failed: ${r.status}`);
+          const items = r.body.results || r.body;
+          items.slice(-10).forEach(a => {
+            const actor = a.actor_detail?.display_name || '?';
+            out(`[${a.created_at?.split('T')[0]}] ${actor}: ${a.verb} ${a.field || ''} ${a.new_value ? '→ ' + a.new_value : ''}`);
+          });
+
+        } else if (action === 'delete') {
+          const issueId = args._[0];
+          if (!issueId) err('issue id required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/${issueId}/`);
+          if (r.status !== 204) err(`delete failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Issue ${issueId} deleted.`);
+        }
+
+      } else if (resource === 'states') {
+        if (action === 'list') {
+          if (!args.project) err('--project <id> is required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${args.project}/states/`);
+          if (r.status !== 200) err(`states list failed: ${r.status}`);
+          const states = r.body.results || r.body;
+          states.forEach(s => out(`${s.name} (group:${s.group}) id:${s.id}`));
+        }
+
+      } else if (resource === 'members') {
+        const roleMap = { owner: 20, admin: 20, member: 15, viewer: 10, guest: 5 };
+
+        if (action === 'list') {
+          const r = await request('GET', `/api/workspaces/${WORKSPACE}/members/`);
+          if (r.status !== 200) err(`members list failed: ${r.status} ${JSON.stringify(r.body)}`);
+          const members = r.body.results || r.body;
+          if (!Array.isArray(members) || !members.length) { out('No workspace members found.'); return; }
+          const roleNames = { 20: 'admin', 15: 'member', 10: 'viewer', 5: 'guest' };
+          members.forEach(m => out(`${m.member?.display_name || m.display_name || '?'} | ${m.member?.email || m.email || '?'} | role:${roleNames[m.role] || m.role} | id:${m.member?.id || m.id}`));
+
+        } else if (action === 'invite') {
+          if (!args.email) err('--email is required');
+          const r = await request('POST', `/api/workspaces/${WORKSPACE}/invitations/`, {
+            emails: [{ email: args.email, role: roleMap[args.role] || 15 }]
+          });
+          if (r.status !== 200 && r.status !== 201) err(`invite failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Invitation sent to ${args.email} as ${args.role || 'member'}.`);
+
+        } else if (action === 'add') {
+          if (!args.project) err('--project <id> is required');
+          if (!args.email && !args.member) err('--email or --member <id> is required');
+          let memberId = args.member;
+          if (!memberId) {
+            const mr = await request('GET', `/api/workspaces/${WORKSPACE}/members/`);
+            const all = mr.body.results || mr.body;
+            const found = all.find(m => (m.member?.email || '').toLowerCase() === args.email.toLowerCase());
+            if (!found) err(`Member ${args.email} not found in workspace. Invite them first.`);
+            memberId = found.member.id;
+          }
+          const r = await request('POST', `/api/workspaces/${WORKSPACE}/projects/${args.project}/members/`, {
+            member_id: memberId, role: roleMap[args.role] || 15
+          });
+          if (r.status !== 200 && r.status !== 201) err(`add to project failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Member added to project ${args.project} as ${args.role || 'member'}.`);
+
+        } else if (action === 'remove') {
+          if (!args.project || !args.member) err('--project and --member <id> are required');
+          const r = await request('DELETE', `/api/workspaces/${WORKSPACE}/projects/${args.project}/members/${args.member}/`);
+          if (r.status !== 204 && r.status !== 200) err(`remove failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Member ${args.member} removed from project ${args.project}.`);
+
+        } else if (action === 'project-list') {
+          if (!args.project) err('--project <id> is required');
+          const r = await request('GET', `/api/workspaces/${WORKSPACE}/projects/${args.project}/members/`);
+          if (r.status !== 200) err(`project members list failed: ${r.status}`);
+          const members = r.body.results || r.body;
+          const roleNames = { 20: 'admin', 15: 'member', 10: 'viewer', 5: 'guest' };
+          if (!Array.isArray(members) || !members.length) { out('No members in this project.'); return; }
+          members.forEach(m => out(`${m.member?.display_name || '?'} | ${m.member?.email || '?'} | role:${roleNames[m.role] || m.role} | id:${m.member?.id}`));
+
+        } else if (action === 'role') {
+          if (!args.project || !args.member) err('--project and --member <id> are required');
+          if (!args.role) err('--role <admin|member|viewer> is required');
+          const r = await request('PATCH', `/api/workspaces/${WORKSPACE}/projects/${args.project}/members/${args.member}/`, {
+            role: roleMap[args.role] || 15
+          });
+          if (r.status !== 200) err(`role update failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Member ${args.member} role updated to ${args.role}.`);
+        }
+
+      } else if (resource === 'labels') {
+        const projectId = args.project;
+        if (!projectId) err('--project <id> is required');
+
+        if (action === 'list') {
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/labels/`);
+          if (r.status !== 200) err(`labels list failed: ${r.status}`);
+          const labels = r.body.results || r.body;
+          if (!labels.length) { out('No labels found.'); return; }
+          labels.forEach(l => out(`${l.name} | color:${l.color || 'none'} | id:${l.id}`));
+        } else if (action === 'create') {
+          if (!args.name) err('--name is required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/labels/`, {
+            name: args.name, color: args.color || '#6b7280'
+          });
+          if (r.status !== 201) err(`label create failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Created label: ${r.body.name} (id:${r.body.id})`);
+        } else if (action === 'delete') {
+          if (!args.label) err('--label <id> is required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/labels/${args.label}/`);
+          if (r.status !== 204) err(`label delete failed: ${r.status}`);
+          out(`Label ${args.label} deleted.`);
+        }
+
+      } else if (resource === 'modules') {
+        const projectId = args.project;
+        if (!projectId) err('--project <id> is required');
+
+        if (action === 'list') {
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/modules/`);
+          if (r.status !== 200) err(`modules list failed: ${r.status}`);
+          const modules = r.body.results || r.body;
+          if (!modules.length) { out('No modules found.'); return; }
+          modules.forEach(m => out(`${m.name} | status:${m.status || '?'} | id:${m.id}`));
+        } else if (action === 'create') {
+          if (!args.name) err('--name is required');
+          const payload = { name: args.name };
+          if (args.description) payload.description = args.description;
+          if (args.start) payload.start_date = args.start;
+          if (args.end) payload.target_date = args.end;
+          if (args.status) payload.status = args.status;
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/modules/`, payload);
+          if (r.status !== 201) err(`module create failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Created module: ${r.body.name} (id:${r.body.id})`);
+        } else if (action === 'issues') {
+          if (!args.module) err('--module <id> is required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/modules/${args.module}/module-issues/`);
+          if (r.status !== 200) err(`module issues failed: ${r.status}`);
+          const items = r.body.results || r.body;
+          items.forEach(mi => {
+            const i = mi.issue_detail || mi;
+            out(`[${i.sequence_id}] ${i.name} | id:${i.id}`);
+          });
+        } else if (action === 'add-issue') {
+          if (!args.module || !args.issue) err('--module and --issue are required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/modules/${args.module}/module-issues/`, {
+            issues: [args.issue]
+          });
+          if (r.status !== 200 && r.status !== 201) err(`module add-issue failed: ${r.status}`);
+          out(`Issue ${args.issue} added to module ${args.module}.`);
+        } else if (action === 'remove-issue') {
+          if (!args.module || !args.issue) err('--module and --issue are required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/modules/${args.module}/module-issues/${args.issue}/`);
+          if (r.status !== 204 && r.status !== 200) err(`module remove-issue failed: ${r.status}`);
+          out(`Issue ${args.issue} removed from module ${args.module}.`);
+        }
+
+      } else if (resource === 'cycles') {
+        const projectId = args.project;
+        if (!projectId) err('--project <id> is required');
+
+        if (action === 'list') {
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/`);
+          if (r.status !== 200) err(`cycles list failed: ${r.status} ${JSON.stringify(r.body)}`);
+          const cycles = r.body.results || r.body;
+          if (!Array.isArray(cycles) || !cycles.length) { out('No cycles found.'); return; }
+          cycles.forEach(c => out(`${c.name} | ${c.start_date || '?'} → ${c.end_date || '?'} | id:${c.id}`));
+        } else if (action === 'create') {
+          if (!args.name || !args.start || !args.end) err('--name --start --end are required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/`, {
+            name: args.name, start_date: args.start, end_date: args.end
+          });
+          if (r.status !== 201) err(`cycles create failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Created cycle: ${r.body.name} (id:${r.body.id})`);
+          const ctx = readContext();
+          ctx.activeCycle = { id: r.body.id, name: r.body.name };
+          writeContext(ctx);
+        } else if (action === 'issues') {
+          if (!args.cycle) err('--cycle <id> is required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/${args.cycle}/cycle-issues/`);
+          if (r.status !== 200) err(`cycles issues failed: ${r.status}`);
+          const items = r.body.results || r.body;
+          if (!items.length) { out('No issues in this cycle.'); return; }
+          items.forEach(ci => {
+            const i = ci.issue_detail || ci;
+            out(`[${i.sequence_id || '?'}] ${i.name} | id:${i.id}`);
+          });
+        } else if (action === 'add-issue') {
+          if (!args.cycle || !args.issue) err('--cycle and --issue are required');
+          const r = await request('POST', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/${args.cycle}/cycle-issues/`, {
+            issues: [args.issue]
+          });
+          if (r.status !== 200 && r.status !== 201) err(`add-issue failed: ${r.status} ${JSON.stringify(r.body)}`);
+          out(`Issue ${args.issue} added to cycle ${args.cycle}.`);
+        } else if (action === 'remove-issue') {
+          if (!args.cycle || !args.issue) err('--cycle and --issue are required');
+          const r = await request('DELETE', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/${args.cycle}/cycle-issues/${args.issue}/`);
+          if (r.status !== 204 && r.status !== 200) err(`remove-issue failed: ${r.status}`);
+          out(`Issue ${args.issue} removed from cycle ${args.cycle}.`);
+        } else if (action === 'progress') {
+          if (!args.cycle) err('--cycle <id> is required');
+          const r = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/cycles/${args.cycle}/`);
+          if (r.status !== 200) err(`cycle get failed: ${r.status}`);
+          const c = r.body;
+          const total = (c.total_issues || 0);
+          const completed = (c.completed_issues || 0);
+          const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+          out(`Cycle: ${c.name}`);
+          out(`Progress: ${completed}/${total} issues complete (${pct}%)`);
+          out(`Dates: ${c.start_date} → ${c.end_date}`);
+        }
+
+      } else if (resource === 'standup') {
+        const projectId = args.project;
+        if (!projectId) err('--project <id> is required');
+        const statesR = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/states/`);
+        const states = (statesR.body.results || statesR.body).reduce((m, s) => { m[s.id] = s; return m; }, {});
+        const issuesR = await request('GET', `/api/v1/workspaces/${WORKSPACE}/projects/${projectId}/issues/?expand=assignees,state&per_page=250`);
+        const issues = issuesR.body.results || issuesR.body;
+        const done = [], inProgress = [], blocked = [], upcoming = [], backlog = [];
+        const now = new Date();
+        const yesterday = new Date(now - 86400000);
+        issues.forEach(i => {
+          const state = states[i.state] || {};
+          const group = state.group || '';
+          const isBlocked = !i.assignees?.length || (i.label_details || []).some(l => l.name?.toLowerCase() === 'blocked');
+          if (group === 'done' && new Date(i.completed_at || i.updated_at) >= yesterday) done.push(i);
+          else if (group === 'started' && isBlocked) blocked.push(i);
+          else if (group === 'started') inProgress.push(i);
+          else if (group === 'unstarted') upcoming.push(i);
+          else if (group === 'backlog') backlog.push(i);
+        });
+        const fmt = i => {
+          const assignees = (i.assignee_details || []).map(a => a.display_name || a.email).join(', ') || 'unassigned';
+          return `  • [${i.sequence_id || '?'}] ${i.name} (${i.priority || 'none'}) — ${assignees}`;
+        };
+        out('📋 Daily Standup — ' + new Date().toISOString().split('T')[0] + '\n');
+        out(`✅ Closed Yesterday (${done.length}):\n` + (done.map(fmt).join('\n') || '  None'));
+        out(`\n🔨 In Progress (${inProgress.length}):\n` + (inProgress.map(fmt).join('\n') || '  None'));
+        out(`\n🚧 Blocked (${blocked.length}):\n` + (blocked.map(fmt).join('\n') || '  None'));
+        out(`\n📋 Up Next (${upcoming.length}):\n` + (upcoming.slice(0, 8).map(fmt).join('\n') || '  None'));
+        if (backlog.length) out(`\n📦 Backlog (${backlog.length} items)`);
+        const ctx = readContext();
+        ctx.lastStandupAt = new Date().toISOString();
+        writeContext(ctx);
+
+      } else {
+        err(`Unknown resource: ${resource}.\nAvailable: projects, issues, states, members, labels, modules, cycles, standup\nSee AGENTS.md for full command reference.`);
+      }
+    }
+
+    run().catch(e => { console.error(e.message || e); process.exit(1); });
+
+  slack.js: |
+    #!/usr/bin/env node
+    'use strict';
+    const https = require('https');
+
+    const TOKEN = process.env.SLACK_BOT_TOKEN || '';
+
+    function slackApi(endpoint, body) {
+      return new Promise((resolve, reject) => {
+        const data = JSON.stringify(body);
+        const opts = {
+          hostname: 'slack.com',
+          path: `/api/${endpoint}`,
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${TOKEN}`,
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': Buffer.byteLength(data)
+          }
+        };
+        const req = https.request(opts, res => {
+          let d = '';
+          res.on('data', c => d += c);
+          res.on('end', () => {
+            try { resolve(JSON.parse(d)); } catch(e) { resolve({ ok: false, error: d }); }
+          });
+        });
+        req.on('error', reject);
+        req.write(data);
+        req.end();
+      });
+    }
+
+    function parseArgs(argv) {
+      const args = { _: [] };
+      for (let i = 0; i < argv.length; i++) {
+        if (argv[i].startsWith('--')) {
+          const key = argv[i].slice(2);
+          args[key] = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[++i] : true;
+        } else { args._.push(argv[i]); }
+      }
+      return args;
+    }
+
+    async function run() {
+      const [action, ...rest] = process.argv.slice(2);
+      const args = parseArgs(rest);
+
+      if (!TOKEN) { console.error('SLACK_BOT_TOKEN is not set.'); process.exit(1); }
+
+      if (action === 'post') {
+        if (!args.channel || !args.message) {
+          console.error('Usage: slack.js post --channel "#channel" --message "text"');
+          process.exit(1);
+        }
+        const r = await slackApi('chat.postMessage', {
+          channel: args.channel,
+          text: args.message,
+          mrkdwn: true
+        });
+        if (!r.ok) { console.error('Slack error:', r.error); process.exit(1); }
+        console.log(`Posted to ${args.channel} (ts:${r.ts})`);
+      } else if (action === 'channels') {
+        const r = await slackApi('conversations.list', { types: 'public_channel,private_channel', limit: 100 });
+        if (!r.ok) { console.error('Slack error:', r.error); process.exit(1); }
+        (r.channels || []).forEach(c => console.log(`#${c.name} | id:${c.id}`));
+      } else {
+        console.error('Usage: slack.js <post|channels> [options]');
+        process.exit(1);
+      }
+    }
+
+    run().catch(e => { console.error(e.message); process.exit(1); });

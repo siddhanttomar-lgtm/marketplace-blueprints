@@ -64,6 +64,38 @@ app.kubernetes.io/component: webui
 {{- end }}
 
 {{/*
+LiteLLM service host
+*/}}
+{{- define "open-webui.litellmHost" -}}
+{{- printf "%s-litellm" .Release.Name }}
+{{- end }}
+
+{{/*
+LiteLLM selector labels
+*/}}
+{{- define "open-webui.litellmSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "open-webui.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: litellm
+{{- end }}
+
+{{/*
+Whisper service host
+*/}}
+{{- define "open-webui.whisperHost" -}}
+{{- printf "%s-whisper" .Release.Name }}
+{{- end }}
+
+{{/*
+Whisper selector labels
+*/}}
+{{- define "open-webui.whisperSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "open-webui.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: whisper
+{{- end }}
+
+{{/*
 WebUI secret key — generate once, reuse on upgrades via lookup
 */}}
 {{- define "open-webui.secretKey" -}}

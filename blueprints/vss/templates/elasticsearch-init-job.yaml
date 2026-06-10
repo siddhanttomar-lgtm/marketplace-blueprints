@@ -1,0 +1,562 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vss.fullname" . }}-elasticsearch-init
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: elasticsearch-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: elasticsearch-init
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: registry-pull-secret
+      containers:
+        - name: elasticsearch-init
+          image: registry.e2enetworks.net/marketplace-blueprint/curlimages/curl:8.7.1
+          env:
+            - name: ELASTICSEARCH_URL
+              value: {{ include "vss.elasticsearchUrl" . | quote }}
+            - name: BP_PROFILE
+              value: {{ .Values.vssAgent.bpProfile | default "bp_developer_base" | quote }}
+            # ILM delete min_age — NVIDIA default is 4h (14400000 ms); increase for longer retention.
+            - name: ELASTICSEARCH_ILM_MIN_AGE
+              value: {{ .Values.elasticsearch.ilmMinAge | default "4h" | quote }}
+            # Embedding dims: 1536 for RTVI CV model, 768 for Vision LLM (Cosmos).
+            - name: ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM
+              value: {{ .Values.elasticsearch.rtviCvEmbeddingsDim | default "1536" | quote }}
+            - name: ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM
+              value: {{ .Values.elasticsearch.visionLlmEmbeddingsDim | default "768" | quote }}
+            - name: ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS
+              value: "20"
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -euo pipefail
+
+              ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=0
+
+              ########################################
+              # wait for ES
+              ########################################
+              echo "Waiting for Elasticsearch at $ELASTICSEARCH_URL..."
+              until curl --output /dev/null --silent --head --fail -XGET "$ELASTICSEARCH_URL"; do
+                if [ "$ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS" -ge "$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS" ]; then
+                  echo "Max connection attempts reached. Exiting." && exit 1
+                fi
+                ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=$((ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS+1))
+                echo "Attempt $ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS/$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS..."
+                sleep 5
+              done
+              echo "Elasticsearch ready."
+
+              ########################################
+              # ILM poll interval — 30s (NVIDIA default)
+              ########################################
+              curl -sf -X PUT "$ELASTICSEARCH_URL/_cluster/settings" \
+                -H 'Content-Type: application/json' \
+                -d '{"persistent":{"indices.lifecycle.poll_interval":"30s"}}' \
+                && echo "ILM poll interval set to 30s."
+
+              ########################################
+              # helper
+              ########################################
+              put_ilm() {
+                local name="$1" cfg="$2"
+                echo "ILM policy: $name"
+                code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$ELASTICSEARCH_URL/_ilm/policy/$name" \
+                  -H 'Content-Type: application/json' -d "$cfg")
+                [ "$code" = "200" ] || { echo "FAILED ($code) for $name"; exit 1; }
+              }
+
+              put_tpl() {
+                local name="$1" cfg="$2"
+                echo "Index template: $name"
+                code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$ELASTICSEARCH_URL/_index_template/$name" \
+                  -H 'Content-Type: application/json' -d "$cfg")
+                [ "$code" = "200" ] || { echo "FAILED ($code) for $name"; exit 1; }
+              }
+
+              put_pipeline() {
+                local name="$1" cfg="$2"
+                echo "Ingest pipeline: $name"
+                code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$ELASTICSEARCH_URL/_ingest/pipeline/$name" \
+                  -H 'Content-Type: application/json' -d "$cfg")
+                [ "$code" = "200" ] || { echo "FAILED ($code) for $name"; exit 1; }
+              }
+
+              ########################################
+              # ILM policies — delete-only, min_age from env (NVIDIA: 4h default)
+              ########################################
+              for policy in mdx-behavior mdx-raw mdx-frames mdx-alerts mdx-events \
+                            mdx-mtmc mdx-rtls mdx-amr-locations mdx-amr-events \
+                            mdx-bev mdx-space-utilization mdx-vlm-alerts \
+                            mdx-incidents mdx-vlm-incidents mdx-embed-filtered; do
+                put_ilm "${policy}-ilm-policy" \
+                  "{\"policy\":{\"phases\":{\"delete\":{\"min_age\":\"${ELASTICSEARCH_ILM_MIN_AGE}\",\"actions\":{\"delete\":{}}}}}}"
+              done
+              echo "All ILM policies created."
+
+              ########################################
+              # Base template — metropolis_template (priority 100)
+              # 16 shards, async translog, 2s refresh — matches NVIDIA high-throughput default
+              ########################################
+              put_tpl "metropolis_template" '{
+                "index_patterns": ["mdx-*"],
+                "priority": 100,
+                "template": {
+                  "settings": {
+                    "number_of_shards": 16,
+                    "translog.durability": "async",
+                    "refresh_interval": "2s"
+                  }
+                }
+              }'
+
+              ########################################
+              # Per-index templates (priorities 501-515)
+              ########################################
+              put_tpl "mdx_alerts_template" '{
+                "index_patterns": ["mdx-alerts-*"],
+                "priority": 501,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-alerts-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "locations":      { "type": "geo_shape" },
+                      "smoothLocations":{ "type": "geo_shape" },
+                      "speedOverTime":  { "enabled": false },
+                      "lipActivities":  { "enabled": false },
+                      "gazes":          { "enabled": false },
+                      "poses":          { "enabled": false },
+                      "object": { "properties": {
+                        "bbox":        { "enabled": false },
+                        "coordinate":  { "enabled": false },
+                        "dir":         { "enabled": false },
+                        "embedding":   { "enabled": false },
+                        "gaze":        { "enabled": false },
+                        "lipActivity": { "enabled": false },
+                        "location":    { "enabled": false },
+                        "pose":        { "enabled": false }
+                      }}
+                    }
+                  }
+                }
+              }'
+
+              # mdx_behavior_template — dense_vector only for bp_developer_search profile
+              if [ "$BP_PROFILE" = "bp_developer_search" ]; then
+                put_tpl "mdx_behavior_template" "{
+                  \"index_patterns\": [\"mdx-behavior-*\"],
+                  \"priority\": 502,
+                  \"template\": {
+                    \"settings\": {
+                      \"index.lifecycle.name\": \"mdx-behavior-ilm-policy\",
+                      \"index.mapping.exclude_source_vectors\": false
+                    },
+                    \"mappings\": {
+                      \"properties\": {
+                        \"locations\":       { \"type\": \"geo_shape\" },
+                        \"smoothLocations\": { \"type\": \"geo_shape\" },
+                        \"speedOverTime\":   { \"enabled\": false },
+                        \"lipActivities\":   { \"enabled\": false },
+                        \"gazes\":           { \"enabled\": false },
+                        \"poses\":           { \"enabled\": false },
+                        \"embeddings\": {
+                          \"type\": \"nested\",
+                          \"properties\": {
+                            \"vector\": { \"type\": \"dense_vector\", \"dims\": ${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM}, \"index\": true }
+                          }
+                        },
+                        \"object\": { \"properties\": {
+                          \"bbox\":        { \"enabled\": false },
+                          \"coordinate\":  { \"enabled\": false },
+                          \"dir\":         { \"enabled\": false },
+                          \"embedding\":   { \"enabled\": false },
+                          \"gaze\":        { \"enabled\": false },
+                          \"lipActivity\": { \"enabled\": false },
+                          \"location\":    { \"enabled\": false },
+                          \"pose\":        { \"enabled\": false }
+                        }}
+                      }
+                    }
+                  }
+                }"
+              else
+                put_tpl "mdx_behavior_template" '{
+                  "index_patterns": ["mdx-behavior-*"],
+                  "priority": 502,
+                  "template": {
+                    "settings": { "index.lifecycle.name": "mdx-behavior-ilm-policy" },
+                    "mappings": {
+                      "properties": {
+                        "locations":       { "type": "geo_shape" },
+                        "smoothLocations": { "type": "geo_shape" },
+                        "speedOverTime":   { "enabled": false },
+                        "lipActivities":   { "enabled": false },
+                        "gazes":           { "enabled": false },
+                        "poses":           { "enabled": false },
+                        "object": { "properties": {
+                          "bbox":        { "enabled": false },
+                          "coordinate":  { "enabled": false },
+                          "dir":         { "enabled": false },
+                          "embedding":   { "enabled": false },
+                          "gaze":        { "enabled": false },
+                          "lipActivity": { "enabled": false },
+                          "location":    { "enabled": false },
+                          "pose":        { "enabled": false }
+                        }}
+                      }
+                    }
+                  }
+                }'
+              fi
+
+              put_tpl "mdx_events_template" '{
+                "index_patterns": ["mdx-events-*"],
+                "priority": 503,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-events-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "locations":       { "type": "geo_shape" },
+                      "smoothLocations": { "type": "geo_shape" },
+                      "speedOverTime":   { "enabled": false },
+                      "lipActivities":   { "enabled": false },
+                      "gazes":           { "enabled": false },
+                      "poses":           { "enabled": false },
+                      "object": { "properties": {
+                        "bbox":        { "enabled": false },
+                        "coordinate":  { "enabled": false },
+                        "dir":         { "enabled": false },
+                        "embedding":   { "enabled": false },
+                        "gaze":        { "enabled": false },
+                        "lipActivity": { "enabled": false },
+                        "location":    { "enabled": false },
+                        "pose":        { "enabled": false }
+                      }}
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_vlm_alerts_template" '{
+                "index_patterns": ["mdx-vlm-alerts-*"],
+                "priority": 504,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-vlm-alerts-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "locations":       { "type": "geo_shape" },
+                      "smoothLocations": { "type": "geo_shape" },
+                      "speedOverTime":   { "enabled": false },
+                      "lipActivities":   { "enabled": false },
+                      "gazes":           { "enabled": false },
+                      "poses":           { "enabled": false },
+                      "object": { "properties": {
+                        "bbox":        { "enabled": false },
+                        "coordinate":  { "enabled": false },
+                        "dir":         { "enabled": false },
+                        "embedding":   { "enabled": false },
+                        "gaze":        { "enabled": false },
+                        "lipActivity": { "enabled": false },
+                        "location":    { "enabled": false },
+                        "pose":        { "enabled": false }
+                      }}
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_frames_template" '{
+                "index_patterns": ["mdx-frames-*"],
+                "priority": 505,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-frames-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "objects": {
+                        "type": "nested",
+                        "properties": {
+                          "bbox":        { "enabled": false },
+                          "bbox3d":      { "enabled": false },
+                          "coordinate":  { "enabled": false },
+                          "dir":         { "enabled": false },
+                          "embedding":   { "enabled": false },
+                          "gaze":        { "enabled": false },
+                          "lipActivity": { "enabled": false },
+                          "location":    { "enabled": false },
+                          "pose":        { "enabled": false }
+                        }
+                      },
+                      "rois": {
+                        "type": "nested",
+                        "properties": { "coordinates": { "enabled": false } }
+                      },
+                      "fov": { "type": "nested" },
+                      "socialDistancing": { "properties": { "clusters": { "enabled": false } } }
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_mtmc_template" '{
+                "index_patterns": ["mdx-mtmc-*"],
+                "priority": 506,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-mtmc-ilm-policy" },
+                  "mappings": { "properties": { "matched": { "type": "nested" } } }
+                }
+              }'
+
+              put_tpl "mdx_rtls_template" '{
+                "index_patterns": ["mdx-rtls-*"],
+                "priority": 507,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-rtls-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "objects": {
+                        "type": "nested",
+                        "properties": {
+                          "bbox":        { "enabled": false },
+                          "bbox3d":      { "enabled": false },
+                          "coordinate":  { "enabled": false },
+                          "dir":         { "enabled": false },
+                          "embedding":   { "enabled": false },
+                          "gaze":        { "enabled": false },
+                          "lipActivity": { "enabled": false },
+                          "location":    { "enabled": false },
+                          "pose":        { "enabled": false }
+                        }
+                      },
+                      "rois": {
+                        "type": "nested",
+                        "properties": { "coordinates": { "enabled": false } }
+                      },
+                      "fov": { "type": "nested" },
+                      "socialDistancing": { "properties": { "clusters": { "enabled": false } } }
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_amr_locations_template" '{
+                "index_patterns": ["mdx-amr-locations-*"],
+                "priority": 508,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-amr-locations-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "objectCounts":      { "type": "nested" },
+                      "locationsOfObjects":{ "enabled": false }
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_amr_events_template" '{
+                "index_patterns": ["mdx-amr-events-*"],
+                "priority": 509,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-amr-events-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "events": {
+                        "type": "nested",
+                        "properties": {
+                          "blockages":        { "enabled": false },
+                          "currentRoute":     { "enabled": false },
+                          "newRoute":         { "enabled": false },
+                          "currentLocation":  { "enabled": false }
+                        }
+                      }
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_bev_template" '{
+                "index_patterns": ["mdx-bev-*"],
+                "priority": 510,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-bev-ilm-policy" },
+                  "mappings": {
+                    "properties": {
+                      "objects": {
+                        "type": "nested",
+                        "properties": {
+                          "bbox":        { "enabled": false },
+                          "bbox3d":      { "enabled": false },
+                          "coordinate":  { "enabled": false },
+                          "dir":         { "enabled": false },
+                          "embedding":   { "enabled": false },
+                          "gaze":        { "enabled": false },
+                          "lipActivity": { "enabled": false },
+                          "location":    { "enabled": false },
+                          "pose":        { "enabled": false }
+                        }
+                      }
+                    }
+                  }
+                }
+              }'
+
+              put_tpl "mdx_space_utilization_template" '{
+                "index_patterns": ["mdx-space-utilization-*"],
+                "priority": 511,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-space-utilization-ilm-policy" },
+                  "mappings": { "properties": { "layouts": { "enabled": false } } }
+                }
+              }'
+
+              # mdx_raw_template — dense_vector only for bp_developer_search profile
+              if [ "$BP_PROFILE" = "bp_developer_search" ]; then
+                put_tpl "mdx_raw_template" "{
+                  \"index_patterns\": [\"mdx-raw-*\"],
+                  \"priority\": 512,
+                  \"template\": {
+                    \"settings\": {
+                      \"index.lifecycle.name\": \"mdx-raw-ilm-policy\",
+                      \"index.mapping.exclude_source_vectors\": false
+                    },
+                    \"mappings\": {
+                      \"properties\": {
+                        \"objects\": {
+                          \"type\": \"nested\",
+                          \"properties\": {
+                            \"bbox\":        { \"enabled\": false },
+                            \"bbox3d\":      { \"enabled\": false },
+                            \"coordinate\":  { \"enabled\": false },
+                            \"dir\":         { \"enabled\": false },
+                            \"embedding\": {
+                              \"properties\": {
+                                \"vector\": { \"type\": \"dense_vector\", \"dims\": ${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM}, \"index\": true }
+                              }
+                            },
+                            \"gaze\":        { \"enabled\": false },
+                            \"lipActivity\": { \"enabled\": false },
+                            \"location\":    { \"enabled\": false },
+                            \"pose\":        { \"enabled\": false }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }"
+              else
+                put_tpl "mdx_raw_template" '{
+                  "index_patterns": ["mdx-raw-*"],
+                  "priority": 512,
+                  "template": {
+                    "settings": { "index.lifecycle.name": "mdx-raw-ilm-policy" },
+                    "mappings": {
+                      "properties": {
+                        "objects": {
+                          "type": "nested",
+                          "properties": {
+                            "bbox":        { "enabled": false },
+                            "bbox3d":      { "enabled": false },
+                            "coordinate":  { "enabled": false },
+                            "dir":         { "enabled": false },
+                            "embedding":   { "enabled": false },
+                            "gaze":        { "enabled": false },
+                            "lipActivity": { "enabled": false },
+                            "location":    { "enabled": false },
+                            "pose":        { "enabled": false }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }'
+              fi
+
+              put_tpl "mdx_incidents_template" '{
+                "index_patterns": ["mdx-incidents-*"],
+                "priority": 513,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-incidents-ilm-policy" }
+                }
+              }'
+
+              put_tpl "mdx_embed_filtered_template" "{
+                \"index_patterns\": [\"mdx-embed-filtered-*\"],
+                \"priority\": 514,
+                \"template\": {
+                  \"settings\": {
+                    \"index.lifecycle.name\": \"mdx-embed-filtered-ilm-policy\",
+                    \"index.mapping.exclude_source_vectors\": false
+                  },
+                  \"mappings\": {
+                    \"properties\": {
+                      \"llm\": {
+                        \"properties\": {
+                          \"visionEmbeddings\": {
+                            \"type\": \"nested\",
+                            \"properties\": {
+                              \"vector\": { \"type\": \"dense_vector\", \"dims\": ${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM}, \"index\": true }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }"
+
+              put_tpl "mdx_vlm_incidents_template" '{
+                "index_patterns": ["mdx-vlm-incidents-*"],
+                "priority": 515,
+                "template": {
+                  "settings": { "index.lifecycle.name": "mdx-vlm-incidents-ilm-policy" }
+                }
+              }'
+
+              ########################################
+              # VSS search template
+              ########################################
+              put_tpl "vss_template" '{
+                "index_patterns": ["vss-*"],
+                "priority": 200,
+                "template": {
+                  "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+                  "mappings": {
+                    "properties": {
+                      "@timestamp": { "type": "date" },
+                      "video_id":   { "type": "keyword" },
+                      "chunk_id":   { "type": "keyword" },
+                      "summary":    { "type": "text" },
+                      "start_time": { "type": "float" },
+                      "end_time":   { "type": "float" }
+                    }
+                  }
+                }
+              }'
+
+              ########################################
+              # Ingest pipeline — insertion-timestamp-pipeline (NVIDIA reference)
+              ########################################
+              put_pipeline "insertion-timestamp-pipeline" '{
+                "description": "Adds dynamic timestamp field based on targetFieldName in document body",
+                "processors": [
+                  { "set":    { "field": "_ingest_timestamp", "value": "{{ "{{" }}{_ingest.timestamp}}}" } },
+                  { "date":   { "field": "_ingest_timestamp", "target_field": "_ingest_timestamp", "timezone": "UTC", "formats": ["ISO8601"] } },
+                  { "script": { "lang": "painless", "source": "ctx[ctx.targetFieldName] = ctx._ingest_timestamp;" } },
+                  { "remove": { "field": "_ingest_timestamp", "ignore_missing": true } },
+                  { "remove": { "field": "targetFieldName",   "ignore_missing": true } }
+                ]
+              }'
+
+              echo "Elasticsearch initialization complete."

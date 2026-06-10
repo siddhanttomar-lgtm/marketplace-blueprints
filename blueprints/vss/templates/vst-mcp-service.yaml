@@ -1,0 +1,18 @@
+{{- if .Values.vst.mcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-mcp
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vst-mcp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.vst.mcp.port }}
+      targetPort: {{ .Values.vst.mcp.port }}
+{{- end }}

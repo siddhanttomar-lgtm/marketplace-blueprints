@@ -20,6 +20,8 @@ spec:
         {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 8 }}
     spec:
       serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
       securityContext:
         fsGroup: 1000
       {{- with .Values.nodeSelector }}
@@ -57,6 +59,11 @@ spec:
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
               mkdir -p /home/node/.openclaw/workspace/skills/analytics
               cp /config/SKILL.md /home/node/.openclaw/workspace/skills/analytics/SKILL.md
+              for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md AGENTS.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              [ -f /home/node/.openclaw/workspace/USER.md ] || cp /config/USER.md /home/node/.openclaw/workspace/USER.md
               echo "[init-config] Config files copied."
 
               # Select provider from whichever native API key the buyer provided.

@@ -20,7 +20,9 @@ dependencies:
   tags:
   - bitnami-common
   version: 2.37.0
-description: Apache Tomcat is an open-source web server designed to host and run Java-based web applications. It is a lightweight server with a good performance for applications running in production environments.
+description: Apache Tomcat is an open-source web server designed to host and run Java-based
+  web applications. It is a lightweight server with a good performance for applications
+  running in production environments.
 home: https://bitnami.com
 icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/tomcat/img/tomcat-stack-220x234.png
 keywords:
@@ -31,7 +33,7 @@ keywords:
 - application server
 - jsp
 maintainers:
-- name: "Broadcom, Inc. All Rights Reserved."
+- name: Broadcom, Inc. All Rights Reserved.
   url: https://github.com/bitnami/charts
 name: tomcat
 sources:

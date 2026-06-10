@@ -17,6 +17,10 @@ spec:
       labels:
         {{- include "open-webui.ollamaSelectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ollama
           image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
@@ -25,6 +29,13 @@ spec:
             - name: ollama
               containerPort: 11434
               protocol: TCP
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - "sleep 10 && ollama pull {{ .Values.model }} &"
           livenessProbe:
             httpGet:
               path: /api/tags
