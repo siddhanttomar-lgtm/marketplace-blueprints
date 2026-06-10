@@ -14,7 +14,9 @@ for chart in "$REPO_ROOT"/blueprints/*/; do
 
   helm lint "$chart" --strict
 
-  helm template test "$chart" > "$rendered_output"
+  ci_values=""
+  [ -f "${chart}ci/ci-values.yaml" ] && ci_values="-f ${chart}ci/ci-values.yaml"
+  helm template test "$chart" $ci_values > "$rendered_output"
   if ! grep -q '^kind:' "$rendered_output"; then
     echo "ERROR: blueprints/$name rendered no Kubernetes resources"
     exit 1
