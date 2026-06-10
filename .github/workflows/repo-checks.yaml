@@ -6,7 +6,7 @@ on:
       - ".github/workflows/**"
       - "scripts/**"
       - "*.md"
-      - ".cr.yaml"
+      - ".charts-releaser.yaml"
       - ".yamllint"
       - "Makefile"
       - ".gitignore"
@@ -17,7 +17,7 @@ on:
       - ".github/workflows/**"
       - "scripts/**"
       - "*.md"
-      - ".cr.yaml"
+      - ".charts-releaser.yaml"
       - ".yamllint"
       - "Makefile"
       - ".gitignore"
@@ -43,7 +43,7 @@ jobs:
       - name: Run yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
-          file_or_dir: .github/workflows .cr.yaml
+          file_or_dir: .github/workflows .charts-releaser.yaml
           config_file: .yamllint
 
   markdown-links:
