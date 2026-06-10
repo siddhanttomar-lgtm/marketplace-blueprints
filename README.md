@@ -62,7 +62,7 @@ What each check covers:
 
 - `shellcheck` validates the shell scripts under `scripts/`
 - `actionlint` validates GitHub Actions workflow structure and expressions
-- `yamllint` checks workflow YAML formatting and `.cr.yaml`
+- `yamllint` checks workflow YAML formatting and `.charts-releaser.yaml`
 - `lychee --offline` checks local Markdown links without depending on external network availability
 - `make lint` and `make validate` run the Helm chart checks for everything under `blueprints/`
 
@@ -375,7 +375,7 @@ marketplace-blueprints/
 │       ├── gitleaks.yml            ← scans for secrets
 │       └── release.yaml            ← runs when a version tag is pushed
 ├── Makefile                        ← shortcuts for lint and validate
-├── .cr.yaml                        ← chart-releaser configuration
+├── .charts-releaser.yaml           ← chart-releaser configuration
 ├── .yamllint                       ← yamllint configuration used locally and in CI
 ├── CONTRIBUTING.md                 ← how to add or improve a blueprint
 └── SECURITY.md                     ← how to report security issues
