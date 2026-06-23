@@ -1,0 +1,34 @@
+# Example values for OpenClaw DevFlow
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+# Enable at least one plugin — deploying with all disabled gives an agent with no tools.
+
+openclaw:
+  # Leave blank to auto-generate a secure token
+  gatewayToken: ""
+  # Optional: E2E TIR bearer token (can also be set in the UI after first login)
+  e2eBearerToken: ""
+
+# Enable the integrations you need:
+plugins:
+  github:
+    enabled: true
+    personalAccessToken: "github_pat_YOUR-TOKEN"
+
+  slack:
+    enabled: false
+    botToken: "xoxb-YOUR-SLACK-BOT-TOKEN"
+    teamId: "T01234567"
+
+  notion:
+    enabled: false
+    integrationToken: "secret_YOUR-NOTION-TOKEN"
+
+  jira:
+    enabled: false
+    host: "yourcompany.atlassian.net"
+    email: "you@yourcompany.com"
+    apiToken: "YOUR-ATLASSIAN-API-TOKEN"
+
+# Optional: Telegram bot integration
+telegram:
+  botToken: ""

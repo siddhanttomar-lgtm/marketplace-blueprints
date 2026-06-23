@@ -1,0 +1,379 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: openclaw-tir
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw-tir
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: openclaw-tir
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: init-config
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              cp /home/node/.openclaw/openclaw.json /tmp/openclaw-backup.json
+              mkdir -p /home/node/.openclaw/workspace
+              cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+
+              # Copy identity/memory files (never overwrite MEMORY.md or USER.md)
+              for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              [ -f /home/node/.openclaw/workspace/USER.md ]   || cp /config/USER.md   /home/node/.openclaw/workspace/USER.md
+              echo "[init-config] Identity files copied."
+
+              # ── E2E GenAI provider configuration ──────────────────────────────────────
+              # Construct the OpenAI-compatible base URL from the platform-injected
+              # TIR project namespace (e.g. "p-16772") and the selected model name.
+              # The bearer token is NOT set here — the agent collects it on first use
+              # and stores it in /home/node/.openclaw/e2e-token.json on the PVC.
+              # On subsequent starts the agent loads the stored token and sets the
+              # apiKey in openclaw.json before the gateway starts serving requests.
+              # Point OpenClaw at our setup-proxy sidecar (handles token collection + E2E routing).
+              # The sidecar listens on localhost:3000 and forwards to the correct E2E endpoint
+              # once a bearer token is stored. apiKey is a placeholder — sidecar injects the real token.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/openclaw.json';
+                const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+                if (!c.models) c.models = {};
+                if (!c.models.providers) c.models.providers = {};
+                c.models.providers.e2e = c.models.providers.e2e || {};
+                c.models.providers.e2e.baseUrl = 'http://localhost:3000/v1';
+                c.models.providers.e2e.apiKey  = 'e2e-proxy';
+                fs.writeFileSync(p, JSON.stringify(c, null, 2));
+                console.error('[init-config] baseUrl → http://localhost:3000/v1 (e2e-setup-proxy)');
+              " 2>/dev/null || true
+
+              # If bearer token was provided at deploy time, save it to PVC immediately
+              # so the proxy skips the setup flow on first boot.
+              if [ -n "${E2E_BEARER_TOKEN}" ]; then
+                mkdir -p /home/node/.openclaw/agents/default/agent
+                node -e "
+                  const fs = require('fs');
+                  const t = process.env.E2E_BEARER_TOKEN;
+                  fs.writeFileSync('/home/node/.openclaw/e2e-token.json', JSON.stringify({ token: t, savedAt: new Date().toISOString() }, null, 2));
+                  let auth = {};
+                  try { auth = JSON.parse(fs.readFileSync('/home/node/.openclaw/agents/default/agent/auth-profiles.json', 'utf8')); } catch(e) {}
+                  auth.e2e = { apiKey: t };
+                  fs.writeFileSync('/home/node/.openclaw/agents/default/agent/auth-profiles.json', JSON.stringify(auth, null, 2));
+                  console.error('[init-config] Deploy-time bearer token saved to PVC.');
+                " 2>/dev/null || true
+              fi
+              echo "[init-config] Default model: e2e/${E2E_MODEL_NAME}"
+
+              # Restore gateway/agents/cron sections if models set clobbered them
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/openclaw.json';
+                const backup = JSON.parse(fs.readFileSync('/tmp/openclaw-backup.json', 'utf8'));
+                let c = {};
+                try { c = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) { c = {}; }
+                if (!c.gateway || !c.gateway.mode) {
+                  c.gateway = backup.gateway;
+                  if (backup.agents) c.agents = backup.agents;
+                  if (backup.cron)   c.cron   = backup.cron;
+                  fs.writeFileSync(p, JSON.stringify(c, null, 2));
+                }
+              " 2>/dev/null || true
+
+              # If a stored bearer token exists on the PVC from a previous run,
+              # load it back into openclaw.json so the gateway starts authenticated.
+              node -e "
+                const fs = require('fs');
+                const tokenFile = '/home/node/.openclaw/e2e-token.json';
+                const configFile = '/home/node/.openclaw/openclaw.json';
+                if (!fs.existsSync(tokenFile)) {
+                  console.error('[init-config] No stored E2E token yet — agent will prompt on first use.');
+                  process.exit(0);
+                }
+                const stored = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
+                const token = stored.token || '';
+                if (!token) { console.error('[init-config] Token file empty.'); process.exit(0); }
+                // Check expiry without network call — JWT payload is base64url middle segment
+                const parts = token.split('.');
+                if (parts.length !== 3) { console.error('[init-config] Malformed token.'); process.exit(0); }
+                let exp = 0;
+                try {
+                  const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+                  exp = payload.exp || 0;
+                } catch(e) {}
+                const nowSec = Math.floor(Date.now() / 1000);
+                if (exp && exp < nowSec) {
+                  console.error('[init-config] Stored E2E token is expired (exp=' + exp + '). Agent will prompt for renewal.');
+                  process.exit(0);
+                }
+                // Token is valid — inject into openclaw.json
+                const c = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+                if (!c.models) c.models = {};
+                if (!c.models.providers) c.models.providers = {};
+                if (!c.models.providers.e2e) c.models.providers.e2e = {};
+                c.models.providers.e2e.apiKey = token;
+                fs.writeFileSync(configFile, JSON.stringify(c, null, 2));
+                const daysLeft = exp ? Math.floor((exp - nowSec) / 86400) : '?';
+                console.error('[init-config] Stored E2E token loaded (expires in ' + daysLeft + ' days).');
+              " 2>/dev/null || true
+
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/exec-approvals.json';
+                fs.writeFileSync(p, JSON.stringify({
+                  version: 1,
+                  agents: { default: { allowlist: ['node /home/node/.openclaw/workspace/*.js *'] } },
+                  allowlist: []
+                }, null, 2));
+              " 2>/dev/null || true
+
+              echo "[init-config] Done."
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: E2E_BASE_URL
+              value: ""
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+      containers:
+        - name: gateway
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              (while true; do
+                sleep 15
+                openclaw devices list --json 2>/dev/null | node -e "
+                  process.stdin.setEncoding('utf8');
+                  var d='';
+                  process.stdin.on('data',function(c){d+=c});
+                  process.stdin.on('end',function(){
+                    try {
+                      var pending=(JSON.parse(d).pending||[]);
+                      var cp=require('child_process');
+                      pending.forEach(function(r){
+                        if(!r.requestId) return;
+                        cp.execSync('openclaw devices approve '+r.requestId,{stdio:'inherit'});
+                        console.log('[device-approver] approved',r.requestId);
+                      });
+                    } catch(e) {}
+                  });
+                " 2>/dev/null
+              done) &
+              exec node /app/dist/index.js gateway run
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: NODE_ENV
+              value: production
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: OPENCLAW_GATEWAY_TOKEN
+          resources:
+            {{- toYaml .Values.openclaw.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 150
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        - name: ingress-patcher
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - node
+            - -e
+            - |
+              'use strict';
+              const https = require('https');
+              const fs   = require('fs');
+              const token   = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+              const ns      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+              const ca      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+              const ingress = 'ingress-{{ .Release.Name }}';
+              const base    = '/apis/networking.k8s.io/v1/namespaces/' + ns + '/ingresses/' + ingress;
+              const patch   = JSON.stringify({ metadata: { annotations: {
+                'haproxy-ingress.github.io/timeout-tunnel':       '1h',
+                'haproxy-ingress.github.io/health-check-interval':'0'
+              }}});
+              function apiCall(method, path, body) {
+                return new Promise(resolve => {
+                  const opts = { hostname: 'kubernetes.default.svc', path, method, ca,
+                    headers: { Authorization: 'Bearer ' + token } };
+                  if (body) { opts.headers['Content-Type'] = 'application/merge-patch+json';
+                    opts.headers['Content-Length'] = Buffer.byteLength(body); }
+                  const req = https.request(opts, res => { resolve(res.statusCode); res.resume(); });
+                  req.on('error', () => resolve(0));
+                  if (body) req.write(body);
+                  req.end();
+                });
+              }
+              async function run() {
+                for (let i = 0; i < 24; i++) {
+                  const status = await apiCall('GET', base, null);
+                  if (status === 200) {
+                    const patched = await apiCall('PATCH', base, patch);
+                    console.log('[ingress-patcher] patched ' + ingress + ' → HTTP ' + patched);
+                    return;
+                  }
+                  console.log('[ingress-patcher] ingress not found yet (' + (i+1) + '/24), retrying in 5s');
+                  await new Promise(r => setTimeout(r, 5000));
+                }
+                console.log('[ingress-patcher] ingress not found after 120s — skipping');
+              }
+              run().catch(e => console.error('[ingress-patcher] error:', e))
+                   .finally(() => setInterval(() => {}, 2147483647));
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        - name: e2e-setup-proxy
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "/config/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-home
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
+        - name: tmp-volume
+          emptyDir: {}

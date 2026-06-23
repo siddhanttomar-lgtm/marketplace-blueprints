@@ -1,0 +1,20 @@
+{{- if .Values.rtviEmbed.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-embed
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-embed
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rtvi-embed
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # The container listens on 8000; service presents it as the configured port (8017)
+    # so vss-agent can reach it at http://{release}-rtvi-embed:8017
+    - name: http
+      port: {{ .Values.rtviEmbed.port }}
+      targetPort: 8000
+{{- end }}

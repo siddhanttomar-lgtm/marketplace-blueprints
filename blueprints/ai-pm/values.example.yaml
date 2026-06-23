@@ -1,0 +1,27 @@
+# Example values for AI Project Manager
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+openclaw:
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  pmName: "Alex"
+
+zoho:
+  clientId: "YOUR-ZOHO-CLIENT-ID"
+  clientSecret: "YOUR-ZOHO-CLIENT-SECRET"
+  refreshToken: "YOUR-ZOHO-REFRESH-TOKEN"
+  workspaceId: "YOUR-ZOHO-SPRINTS-WORKSPACE-ID"
+
+e2e:
+  # Optional: E2E TIR bearer token (can also be set in the UI after first login)
+  bearerToken: ""
+
+# Optional: Slack for posting standups
+slack:
+  botToken: ""
+  standupChannel: "#engineering"
+
+# Optional: Telegram bot integration
+telegram:
+  botToken: ""
+  # Comma-separated Telegram user IDs allowed to use the bot (get from @userinfobot)
+  allowedUserIds: ""

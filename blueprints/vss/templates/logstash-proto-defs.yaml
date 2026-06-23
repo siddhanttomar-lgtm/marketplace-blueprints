@@ -1,0 +1,17 @@
+{{- if .Values.logstash.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-logstash-proto-defs
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: logstash
+data:
+  schema_pb.rb: |
+{{ .Files.Get "pb_definitions/schema_pb.rb" | indent 4 }}
+  ext_pb.rb: |
+{{ .Files.Get "pb_definitions/ext_pb.rb" | indent 4 }}
+binaryData:
+  schema.desc: {{ .Files.Get "pb_definitions/descriptors/schema.desc" | b64enc }}
+  ext.desc: {{ .Files.Get "pb_definitions/descriptors/ext.desc" | b64enc }}
+{{- end }}

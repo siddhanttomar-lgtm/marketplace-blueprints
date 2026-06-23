@@ -29,7 +29,7 @@ spec:
             - sh
             - -c
             - |
-              printf 'model_list:\n' > /litellm-config/config.yaml
+              printf 'model_list:\n  - model_name: _placeholder\n    litellm_params:\n      model: "openai/_placeholder"\n      api_key: "none"\n' > /litellm-config/config.yaml
 
               if [ -n "${OPENAI_API_KEY}" ] && [ ${#OPENAI_API_KEY} -gt 10 ]; then
                 printf '  - model_name: gpt-4o\n    litellm_params:\n      model: "openai/gpt-4o"\n      api_key: "os.environ/OPENAI_API_KEY"\n' >> /litellm-config/config.yaml
@@ -74,6 +74,14 @@ spec:
                 echo "[init] Perplexity models added"
               fi
 
+              if [ -n "${E2E_BEARER_TOKEN}" ] && [ ${#E2E_BEARER_TOKEN} -gt 10 ] && [ -n "${E2E_PROJECT_NAMESPACE}" ]; then
+                for M in gpt_oss_120b qwen3_32b llama3_1_8b_instruct; do
+                  printf '  - model_name: %s\n    litellm_params:\n      model: "openai/%s"\n      api_base: "https://infer.e2enetworks.net/project/%s/genai/%s/v1"\n      api_key: "os.environ/E2E_BEARER_TOKEN"\n' \
+                    "$M" "$M" "${E2E_PROJECT_NAMESPACE}" "$M" >> /litellm-config/config.yaml
+                done
+                echo "[init] E2E GenAI models added (3 free)"
+              fi
+
               echo "[init] Final config:"
               cat /litellm-config/config.yaml
           env:
@@ -112,6 +120,18 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
                   key: PERPLEXITY_API_KEY
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
           volumeMounts:
             - name: litellm-config
               mountPath: /litellm-config
@@ -169,26 +189,46 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
                   key: PERPLEXITY_API_KEY
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
             - name: LITELLM_MASTER_KEY
               value: "sk-litellm"
             - name: STORE_MODEL_IN_DB
               value: "False"
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 57
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: 4000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 0
             periodSeconds: 30
             timeoutSeconds: 10
-            failureThreshold: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health/liveliness
               port: 4000
-            initialDelaySeconds: 60
-            periodSeconds: 15
+            initialDelaySeconds: 0
+            periodSeconds: 10
             timeoutSeconds: 10
-            failureThreshold: 8
+            failureThreshold: 3
           resources:
             requests:
               cpu: {{ .Values.litellm.resources.requests.cpu }}

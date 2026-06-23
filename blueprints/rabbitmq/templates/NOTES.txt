@@ -1,5 +1,0 @@
-RabbitMQ is deploying. Access the management UI at the URL shown in your deployment dashboard.
-
-Username: {{ .Values.rabbitmq.auth.username }}
-Management port: 15672
-AMQP port: 5672

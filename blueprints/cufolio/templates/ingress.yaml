@@ -1,0 +1,50 @@
+{{- if and .Values.ingress.enabled .Values.ingress.baseDomain }}
+# Streamlit UI — primary entrypoint, served at {release}.{baseDomain}
+# Service name matches .Release.Name so platform URL templates resolve.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "cufolio.fullname" . }}-streamlit
+  labels:
+    {{- include "cufolio.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ include "cufolio.streamlitHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}
+                port:
+                  number: 80
+---
+{{- if .Values.jupyter.enabled }}
+# Jupyter Lab — secondary, served at {release}-jupyter.{baseDomain}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "cufolio.fullname" . }}-jupyter
+  labels:
+    {{- include "cufolio.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ include "cufolio.jupyterHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "cufolio.fullname" . }}-jupyter
+                port:
+                  number: 80
+{{- end }}
+{{- end }}

@@ -1,0 +1,14 @@
+# Example values for Apache APISIX
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+dashboard:
+  adminPassword: "YOUR-STRONG-PASSWORD"
+
+apisix:
+  adminCredentials:
+    admin: "YOUR-ADMIN-API-KEY"
+    viewer: "YOUR-VIEWER-API-KEY"
+
+etcd:
+  storage:
+    size: 5Gi

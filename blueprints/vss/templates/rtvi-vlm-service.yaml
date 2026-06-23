@@ -1,0 +1,20 @@
+{{- if .Values.rtviVlm.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-vlm
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-vlm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rtvi-vlm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    # Container listens on 8000; service presents port 8018 so vss-agent
+    # reaches it at http://{release}-rtvi-vlm:8018 via RTVI_VLM_BASE_URL.
+    - name: http
+      port: {{ .Values.rtviVlm.port }}
+      targetPort: 8000
+{{- end }}

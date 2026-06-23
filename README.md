@@ -10,32 +10,17 @@ Every blueprint in this repository is a fully self-contained Kubernetes deployme
 
 | Blueprint | Version | Category |
 |-----------|---------|----------|
-| [ClickHouse](blueprints/clickhouse/README.md) | 25.4 | Databases |
-| [MariaDB](blueprints/mariadb/README.md) | 12.2.2 | Databases |
-| [Memcached](blueprints/memcached/README.md) | 1.6.41 | Databases / Cache |
-| [MongoDB](blueprints/mongodb/README.md) | 8.2.6 | Databases |
-| [MySQL](blueprints/mysql/README.md) | 8.4.0 | Databases |
-| [PostgreSQL](blueprints/postgresql/README.md) | 18.3.0 | Databases |
-| [Redis](blueprints/redis/README.md) | 7.4.1 | Databases / Cache |
-| [Valkey](blueprints/valkey/README.md) | 9.1.0 | Databases / Cache |
-| [Apache Kafka](blueprints/kafka/README.md) | 4.0.0 | Messaging |
-| [NATS](blueprints/nats/README.md) | 2.11.8 | Messaging |
-| [RabbitMQ](blueprints/rabbitmq/README.md) | 3.13.7 | Messaging |
-| [Grafana](blueprints/grafana/README.md) | 12.1.1 | Monitoring |
-| [Prometheus](blueprints/prometheus/README.md) | 2.53.4 | Monitoring |
-| [Uptime Monitor](blueprints/uptime-monitor/README.md) | 11.3.3 | Monitoring |
-| [Nginx](blueprints/nginx/README.md) | 1.29.6 | Web Servers |
-| [Apache Tomcat](blueprints/tomcat/README.md) | 11.0.20 | Web Servers |
-| [Gitea](blueprints/gitea/README.md) | 1.24.5 | Developer Tools |
-| [Jenkins with Maven](blueprints/jenkins-maven/README.md) | 2.492 | Developer Tools |
+| [Jenkins with Maven](blueprints/jenkins-maven/README.md) | 2.516.2 | Developer Tools |
 | [Apache APISIX](blueprints/apisix/README.md) | 3.16.0 | API Gateway |
-| [Keycloak](blueprints/keycloak/README.md) | 26.1.4 | Security |
-| [OpenClaw](blueprints/openclaw/README.md) | 2026.5.12 | AI / LLM Gateway |
 | [AI Chat Workspace](blueprints/open-webui/README.md) | 1.0.0 | AI / LLM |
-| [Claw Analytics Agent](blueprints/ai-analytics-agent/README.md) | 1.2.0 | AI / Agents |
-| [Claw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 4.1.0 | AI / Agents |
-| [OpenClaw Personal Assistant](blueprints/ai-personal-assistant/README.md) | 1.0.0 | AI / Agents |
+| [Google Workspace Assistant](blueprints/google-workspace-assistant/README.md) | 1.0.0 | AI / Agents |
+| [OpenClaw Analytics Agent](blueprints/openclaw-pagesense-agent/README.md) | 1.0.0 | AI / Agents |
+| [OpenClaw DevFlow](blueprints/openclaw-devflow/README.md) | 1.0.0 | AI / Agents |
+| [OpenClaw Personal Assistant](blueprints/openclaw-personal-assistant/README.md) | 1.0.0 | AI / Agents |
 | [OpenClaw Project Manager](blueprints/ai-pm/README.md) | 1.0.0 | AI / Agents |
+| [OpenClaw Sales Agent](blueprints/b2b-sdr-agent/README.md) | 1.0.0 | AI / Agents |
+| [NVIDIA cuFOLIO](blueprints/cufolio/README.md) | 1.0.0 | AI / HPC |
+| [NVIDIA VSS](blueprints/vss/README.md) | 3.1.0 | AI / HPC |
 | [n8n](blueprints/n8n/README.md) | 1.122.4 | Automation |
 
 > New blueprints are added regularly. To propose or contribute one, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -136,7 +121,7 @@ List all available blueprints:
 ls blueprints/
 ```
 
-Each subfolder is one blueprint (e.g. `redis`, `postgresql`, `wordpress`).
+Each subfolder is one blueprint (e.g. `n8n`, `apisix`, `jenkins-maven`).
 
 Read what a blueprint does and what it needs before deploying it:
 
@@ -147,7 +132,7 @@ cat blueprints/<name>/README.md
 Replace `<name>` with your chosen blueprint, for example:
 
 ```bash
-cat blueprints/redis/README.md
+cat blueprints/n8n/README.md
 ```
 
 ---
@@ -160,23 +145,23 @@ Every blueprint has an example configuration file. Copy it:
 cp blueprints/<name>/values.example.yaml my-values.yaml
 ```
 
-Open `my-values.yaml` in any text editor and fill in your values. For example, for Redis:
+Open `my-values.yaml` in any text editor and fill in your values. For example, for n8n:
 
 ```bash
-cp blueprints/redis/values.example.yaml my-values.yaml
+cp blueprints/n8n/values.example.yaml my-values.yaml
 ```
 
 Then edit `my-values.yaml`:
 
 ```yaml
-auth:
-  password: "MyStrongPassword123"   # ← change this
+main:
+  secret:
+    n8n:
+      encryption_key: "my-random-32-char-key"   # ← change this
 
-persistence:
-  size: 8Gi
-
-service:
-  type: NodePort
+  service:
+    type: NodePort
+    port: 5678
 ```
 
 > **Important:** Never commit `my-values.yaml` to Git — it contains your passwords. It is already excluded by `.gitignore`.
@@ -197,13 +182,13 @@ Install the blueprint onto your cluster:
 helm install <release-name> blueprints/<name> -f my-values.yaml
 ```
 
-- `<release-name>` — any name you choose (e.g. `my-redis`, `prod-postgres`)
-- `<name>` — the blueprint folder name (e.g. `redis`, `postgresql`)
+- `<release-name>` — any name you choose (e.g. `my-n8n`, `prod-apisix`)
+- `<name>` — the blueprint folder name (e.g. `n8n`, `apisix`)
 
-Example — deploy Redis:
+Example — deploy n8n:
 
 ```bash
-helm install my-redis blueprints/redis -f my-values.yaml
+helm install my-n8n blueprints/n8n -f my-values.yaml
 ```
 
 Check that the pod is starting:
@@ -341,7 +326,7 @@ helm search repo e2enetworks
 Then install any blueprint directly:
 
 ```bash
-helm install my-redis e2enetworks/redis --set auth.password=MyPassword
+helm install my-n8n e2enetworks/n8n
 ```
 
 **How the Helm repository works:**
@@ -388,15 +373,15 @@ Each blueprint is versioned independently. There are two version fields in every
 | Field | What it means | Example |
 |-------|--------------|---------|
 | `version` | The Helm chart version — bump this whenever you change the chart | `1.0.0` |
-| `appVersion` | The version of the actual software inside the chart | `"7.4.1"` for Redis 7.4.1 |
+| `appVersion` | The version of the actual software inside the chart | `"1.122.4"` for n8n 1.122.4 |
 
 **How releases work:**
 
 A release is triggered by pushing a Git tag in the format `{name}-v{version}`:
 
 ```bash
-git tag redis-v1.0.0
-git push origin redis-v1.0.0
+git tag n8n-v2.0.8
+git push origin n8n-v2.0.8
 ```
 
 This triggers the CI workflow which:

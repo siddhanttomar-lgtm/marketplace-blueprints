@@ -1,8 +1,0 @@
-plane:
-  adminEmail: ci@example.com
-  adminPassword: ci-placeholder
-  secretKey: ci-placeholder-secret-key
-postgres:
-  password: ci-placeholder
-redis:
-  password: ci-placeholder

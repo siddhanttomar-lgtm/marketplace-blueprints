@@ -1,0 +1,15 @@
+# Example values for Jenkins with Maven
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+jenkins:
+  jenkinsUser: admin
+  jenkinsPassword: "YOUR-STRONG-PASSWORD"
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi

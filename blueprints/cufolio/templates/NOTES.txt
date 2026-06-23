@@ -1,0 +1,48 @@
+NVIDIA cuFOLIO — Quantitative Portfolio Optimization  (chart v1.0.0)
+======================================================================
+
+Deployment started. The init container is cloning cuFOLIO and running
+`uv sync --extra cuda13` — this takes 5-10 minutes on first start.
+Subsequent restarts reuse the cached venv and start in under 60 seconds.
+
+━━━ ACCESS URLS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if and .Values.ingress.enabled .Values.ingress.baseDomain }}
+
+Streamlit UI (primary):
+  https://{{ include "cufolio.streamlitHost" . }}
+
+Jupyter Lab:
+  https://{{ include "cufolio.jupyterHost" . }}
+  Token: (see deployment dashboard → credentials)
+
+{{- else }}
+
+Streamlit UI (NodePort):
+  http://<node-ip>:{{ .Values.streamlit.nodePort }}
+
+Jupyter Lab (NodePort):
+  http://<node-ip>:{{ .Values.jupyter.nodePort }}
+  Token: (see deployment dashboard → credentials)
+
+{{- end }}
+
+━━━ DIAGNOSTICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow init container logs (clone + uv sync progress):
+  kubectl logs -n <namespace> -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -c setup -f
+
+Follow main container logs:
+  kubectl logs -n <namespace> -l app.kubernetes.io/instance={{ .Release.Name }} \
+    -c cufolio -f
+
+━━━ FIRST-START NOTES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Init container clones cuFOLIO (public GitHub) and installs cuOpt/cuDF/cuML
+  from PyPI into the cache PVC ({{ .Values.storage.cacheSize }}). No NGC key
+  needed for the Python packages — only for pulling the base image.
+
+• Workspace PVC ({{ .Values.storage.dataSize }}) is mounted at /workspace.
+
+• GPU requirement: 1× H100-class (compute ≥ 9.0), 80 GB VRAM, 64 GB RAM.

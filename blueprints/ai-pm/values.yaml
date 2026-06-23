@@ -1,3 +1,7 @@
+global:
+  platform:
+    tirProjectId: ""
+
 openclaw:
   image:
     repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
@@ -7,12 +11,6 @@ openclaw:
     size: "5Gi"
   gatewayToken: "PMAgent@12345"
   pmName: "Alex"
-  anthropicApiKey: ""
-  openaiApiKey: ""
-  googleApiKey: ""
-  groqApiKey: ""
-  fireworksApiKey: ""
-  openaiApiBase: ""
   resources:
     requests:
       cpu: "200m"
@@ -21,72 +19,44 @@ openclaw:
       cpu: "2000m"
       memory: "2Gi"
 
-plane:
-  image:
-    repository: registry.e2enetworks.net/marketplace-blueprint/plane-backend
-    tag: "v0.22-dev"
-    pullPolicy: IfNotPresent
-  adminEmail: ""
-  adminPassword: ""
-  secretKey: ""
-  workspaceSlug: "my-team"
-  agentApiToken: ""
-  resources:
-    api:
-      requests:
-        cpu: "200m"
-        memory: "512Mi"
-      limits:
-        cpu: "1000m"
-        memory: "1Gi"
-    worker:
-      requests:
-        cpu: "100m"
-        memory: "256Mi"
-      limits:
-        cpu: "500m"
-        memory: "512Mi"
-
-postgres:
-  image:
-    repository: registry.e2enetworks.net/marketplace-blueprint/postgresql
-    tag: "15.7.0-debian-12-r16"
-    pullPolicy: IfNotPresent
-  username: "plane"
-  password: ""
-  database: "plane"
-  storage:
-    size: "10Gi"
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "256Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-
-redis:
-  image:
-    repository: registry.e2enetworks.net/marketplace-blueprint/redis
-    tag: "7.2.5-debian-12-r3"
-    pullPolicy: IfNotPresent
-  password: ""
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "128Mi"
-    limits:
-      cpu: "200m"
-      memory: "256Mi"
-
-slack:
-  botToken: ""
-  standupChannel: ""
+zoho:
+  clientId: ""
+  clientSecret: ""
+  refreshToken: ""
+  workspaceId: ""
 
 telegram:
   botToken: ""
+  # SECURITY: comma-separated Telegram numeric user IDs allowed to use the bot
+  # (get yours from @userinfobot). Without this, unknown DMs are HELD for approval.
+  allowedUserIds: ""
+  # Optional explicit chat ID for proactive pushes (e.g. a group).
+  chatId: ""
+
+slack:
+  botToken: ""
+  teamId: ""
+  standupChannel: ""
+
+standup:
+  # All cron times in UTC. IST = UTC+5:30.
+  morningCron:  "30 3 * * 1-5"    # 09:00 IST weekdays
+  eodCron:      "30 15 * * 1-5"   # 21:00 IST weekdays
+  alertCron:    "0 */2 * * *"     # every 2 hours
+  snapshotCron: "30 17 * * *"     # 23:00 IST daily
+  weeklyCron:   "30 11 * * 5"     # 17:00 IST Friday
+  enabled: ""
+
+stakeholder:
+  # Comma-separated emails for the weekly report
+  emails: ""
 
 persistence:
   accessMode: ReadWriteOnce
 
 nodeSelector: {}
+
+e2e:
+  projectNamespace: ""
+  modelName: "gpt_oss_120b"
+  bearerToken: ""

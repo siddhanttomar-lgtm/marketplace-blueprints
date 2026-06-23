@@ -1,19 +1,20 @@
 # Apache APISIX
 
-E2E's Kubernetes deployment of [Apache APISIX](https://apisix.apache.org) — a high-performance, extensible API gateway with a built-in Dashboard UI, embedded etcd, and persistent route storage.
+E2E's Kubernetes deployment of [Apache APISIX](https://apisix.apache.org) — a high-performance, cloud-native API gateway with a built-in Dashboard UI and etcd backend. Define routes, upstreams, and plugins through the UI without touching YAML.
 
 ## What You Get After Deployment
 
-The E2E Marketplace provisions APISIX and shows two access points in the dashboard:
+The E2E Marketplace provisions APISIX with etcd and the Dashboard, and shows the gateway URL in the dashboard.
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Gateway | 80 | Public API traffic endpoint — add routes before sending traffic |
-| Dashboard UI | 9000 | Admin interface for configuring routes, upstreams, and plugins |
+| API Gateway | 9080 / 9443 | HTTP / HTTPS proxy endpoint |
+| Dashboard UI | 80 | Route and plugin management |
+| Admin API | 9180 | Internal only (ClusterIP) |
 
-Open the Dashboard at `http://<deployment-host>:9000`, log in with username `admin` and the password you set, and change the password on first login.
+Open the Dashboard URL shown in the marketplace, log in with `admin` and the password you configured, then create your first route.
 
-**Gateway test:** Sending a request to the gateway before adding routes returns `{"error_msg":"404 Route Not Found"}` — this means the gateway is working correctly, just waiting for routes to be configured.
+> **Security:** Change the dashboard admin password and Admin API keys immediately after first login. The Admin API runs on ClusterIP only — never expose port 9180 publicly.
 
 ## Configuration
 
@@ -21,27 +22,36 @@ Fill in these values in the E2E Marketplace deployment form:
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `dashboard.adminPassword` | Yes | Dashboard login password. Default is `Admin@12345` — change this. |
-| `apisix.adminCredentials.admin` | No | Admin API key for the APISIX Admin API. Change the default before production. |
-| `apisix.adminCredentials.viewer` | No | Viewer API key for read-only Admin API access. |
-| `etcd.storage.size` | No | PVC size for etcd (stores all routes and config). Default: `5Gi`. |
+| `dashboard.adminPassword` | Yes | Dashboard login password. Change from the default. |
+| `apisix.adminCredentials.admin` | No | Admin API key (MD5 or plain string). Replace the default. |
+| `apisix.adminCredentials.viewer` | No | Viewer API key. Replace the default. |
+| `etcd.storage.size` | No | PVC size for etcd route data. Default: `5Gi`. |
+| `apisix.resources.requests.cpu` | No | CPU request for the gateway pod. Default: `100m`. |
+| `apisix.resources.requests.memory` | No | Memory request for the gateway pod. Default: `256Mi`. |
 
 ## Ports
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Gateway | 80 (→ 9080) | Public API traffic |
-| Dashboard | 9000 | Admin Dashboard UI |
-| Admin API | 9180 | Route/plugin management API (internal — do not expose publicly) |
-| etcd | 2379 | Internal config store (not exposed externally) |
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 9080 | HTTP | Proxy — your API traffic endpoint |
+| 9443 | HTTPS | Proxy — TLS endpoint |
+| 80 | HTTP | Dashboard UI |
+| 9180 | HTTP | Admin API (ClusterIP, internal only) |
+
+## Quick Start
+
+1. Open the Dashboard URL from the marketplace deployment page.
+2. Log in with `admin` / your configured password.
+3. Go to **Routes → Create** and add a route pointing to your upstream service.
+4. Test the gateway: `curl http://<gateway-url>/` — a `404 Route Not Found` response confirms APISIX is running.
 
 ## Troubleshooting
 
-**Blank plugin page in Dashboard** — this is expected on the first load due to a known Dashboard 3.0.1 bug patched by the included OpenResty sidecar. Reload the page.
+**Blank plugin page in Dashboard** — the proxy sidecar handles two known Dashboard 3.0.1 bugs around `/apisix/admin/get_key` and `/apisix/admin/plugins/list`. If plugins still don't appear, check the proxy container logs: `kubectl logs -l app.kubernetes.io/name=apisix -c proxy`.
 
-**`404 Route Not Found` on gateway** — no routes are configured yet. Use the Dashboard to add routes before sending traffic.
+**etcd connection errors** — wait 60 seconds after deployment for etcd to initialize before configuring routes.
 
-**etcd pending** — storage provisioning may be slow. Allow 2–3 minutes after deployment.
+**Route not found after creation** — confirm the upstream host is reachable from within the cluster and the route path matches your request.
 
 ## License
 

@@ -1,0 +1,83 @@
+agentName: "OpenClaw DevFlow"
+
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR — manual override fallback for deploys outside the platform.
+e2e:
+  projectNamespace: ""
+  modelName: "gpt_oss_120b"
+
+openclaw:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
+    tag: "slim"
+    pullPolicy: Always
+  # Gateway auth token. Optional — leave blank and a strong random token is generated
+  # (and kept stable across upgrades). Anyone with this token can access the agent
+  # and every connected tool, so treat it as a password.
+  gatewayToken: ""
+  # E2E Networks bearer token for TIR GenAI access.
+  e2eBearerToken: ""
+  # Control-UI exposure. Defaults stay permissive for the marketplace's URL+token
+  # access; lock them down per deployment if you front the agent differently.
+  controlUi:
+    # Comma-separated allowed origins, e.g. "https://my-agent.example.com". "" => "*".
+    allowedOrigins: ""
+    # Device pairing is disabled by default for zero-friction access (token is the gate).
+    disableDeviceAuth: true
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+telegram:
+  # Optional — if set, enables a Telegram bot bridged to the agent.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  # Access is pairing-only and secure by default: anyone who DMs the bot is HELD pending
+  # approval. You approve them from the Control UI by asking the agent to approve the
+  # pending request (it uses the built-in telegram-pairing tool). The bot is never left
+  # open, so it can't bypass the gateway-token gate.
+  botToken: ""
+
+# Optional integrations. Each runs as a stdio MCP server spawned inside the
+# OpenClaw pod via npx — no extra containers. Only enabled plugins are wired up.
+# The agent has full read/write access to enabled tools but asks for confirmation
+# before any write or destructive action.
+plugins:
+  github:
+    enabled: false
+    # GitHub Personal Access Token (classic or fine-grained).
+    personalAccessToken: ""
+
+  slack:
+    enabled: false
+    # Slack bot token, starts with xoxb-
+    botToken: ""
+    # Slack workspace/team ID, e.g. T01234567
+    teamId: ""
+
+  notion:
+    enabled: false
+    # Notion internal integration token, starts with secret_ (or ntn_)
+    integrationToken: ""
+
+  jira:
+    enabled: false
+    # Atlassian site host, e.g. yourcompany.atlassian.net
+    host: ""
+    # Atlassian account email
+    email: ""
+    # Atlassian API token from id.atlassian.com/manage-profile/security/api-tokens
+    apiToken: ""
+
+persistence:
+  accessMode: ReadWriteOnce
+  size: "5Gi"
+
+nodeSelector: {}

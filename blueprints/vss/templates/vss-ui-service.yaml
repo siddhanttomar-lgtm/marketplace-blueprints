@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # Named exactly {{ .Release.Name }} so the platform's HAProxy ingress and sslip.io URL
+  # generation picks up this service. All other VSS services use the -suffix pattern.
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vss-ui
+spec:
+  {{- if .Values.ingress.enabled }}
+  type: ClusterIP
+  {{- else }}
+  type: NodePort
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: vss-ui
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: {{ .Values.vssUi.port }}
+      {{- if not .Values.ingress.enabled }}
+      nodePort: {{ .Values.vssUi.nodePort }}
+      {{- end }}

@@ -1,0 +1,16 @@
+# Example values for Open WebUI with LiteLLM
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+webui:
+  adminEmail: "admin@example.com"
+  adminPassword: "YOUR-STRONG-PASSWORD"
+
+# LiteLLM proxy — add your AI provider keys here
+litellm:
+  openaiApiKey: ""
+  anthropicApiKey: ""
+  geminiApiKey: ""
+
+# Whisper speech-to-text (optional)
+whisper:
+  enabled: false

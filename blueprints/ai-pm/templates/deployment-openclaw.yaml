@@ -19,6 +19,8 @@ spec:
       labels:
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: openclaw
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ .Release.Name }}-ingress-patcher
       imagePullSecrets:
@@ -54,112 +56,123 @@ spec:
           args:
             - |
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
-              cp /home/node/.openclaw/openclaw.json /tmp/openclaw-backup.json
               mkdir -p /home/node/.openclaw/workspace
               cp /config/SKILL.md /home/node/.openclaw/workspace/SKILL.md
               echo "[init-config] Config and SKILL.md copied."
 
-              # AI model selection
-              if [ ${#ANTHROPIC_API_KEY} -gt 30 ]; then
-                PROVIDER="anthropic"; MODEL_ID="claude-sonnet-4-5"
-              elif [ ${#OPENAI_API_KEY} -gt 30 ]; then
-                PROVIDER="openai"; MODEL_ID="gpt-4o-mini"
-              elif [ ${#GOOGLE_API_KEY} -gt 20 ]; then
-                PROVIDER="google"; MODEL_ID="gemini-2.0-flash"
-              elif [ ${#GROQ_API_KEY} -gt 30 ]; then
-                PROVIDER="groq"; MODEL_ID="qwen-qwq-32b"
-              elif [ ${#FIREWORKS_API_KEY} -gt 10 ]; then
-                PROVIDER="openai"; MODEL_ID="accounts/fireworks/models/deepseek-v4-pro"
-                FIREWORKS_MODE="true"
-              else
-                echo "[init-config] WARNING: no AI API key set."
-                PROVIDER=""; MODEL_ID=""
-              fi
-
-              if [ -n "$PROVIDER" ] && [ -n "$MODEL_ID" ]; then
-                HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
-                  node /app/dist/index.js models set "${PROVIDER}/${MODEL_ID}" 2>/dev/null || true
-                echo "[init-config] Default model: ${PROVIDER}/${MODEL_ID}"
-              fi
-
-              # Restore gateway/agents/cron if models set clobbered them
+              # Point OpenClaw at the local TIR proxy (no external AI keys needed)
               node -e "
                 const fs = require('fs');
                 const p = '/home/node/.openclaw/openclaw.json';
-                const backup = JSON.parse(fs.readFileSync('/tmp/openclaw-backup.json','utf8'));
-                let c = {};
-                try { c = JSON.parse(fs.readFileSync(p,'utf8')); } catch(e) { c = {}; }
-                if (!c.gateway || !c.gateway.mode) {
-                  c.gateway = backup.gateway;
-                  if (backup.agents) c.agents = backup.agents;
-                  if (backup.cron) c.cron = backup.cron;
-                  fs.writeFileSync(p, JSON.stringify(c,null,2));
-                  console.error('[init-config] Restored gateway/agents/cron after models set.');
-                }
-              " 2>/dev/null || true
+                const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+                if (!c.models) c.models = {};
+                if (!c.models.providers) c.models.providers = {};
+                if (!c.models.providers.e2e) c.models.providers.e2e = {};
+                c.models.providers.e2e.baseUrl = 'http://localhost:3000/v1';
+                c.models.providers.e2e.apiKey  = 'e2e-proxy';
+                fs.writeFileSync(p, JSON.stringify(c, null, 2));
+                console.error('[init-config] Proxy baseUrl set to http://localhost:3000/v1');
+              " 2>&1 || true
 
-              if [ "${FIREWORKS_MODE}" = "true" ]; then
+              # Pre-load E2E bearer token from secret if provided at deploy time.
+              if [ ${#E2E_BEARER_TOKEN} -gt 10 ]; then
+                printf '{"token":"%s","savedAt":"pre-loaded"}' "${E2E_BEARER_TOKEN}" > /home/node/.openclaw/e2e-token.json
+                echo "[init-config] E2E bearer token pre-loaded from secret."
+              fi
+
+              # If a token was previously saved on the PVC, load it into openclaw.json
+              if [ -f /home/node/.openclaw/e2e-token.json ]; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const tf = '/home/node/.openclaw/e2e-token.json';
+                  try {
+                    const token = JSON.parse(fs.readFileSync(tf,'utf8')).token || '';
+                    if (!token) { console.error('[init-config] e2e-token.json has no token — skipping.'); process.exit(0); }
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                      const p2 = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+                      if (p2.exp && p2.exp < Math.floor(Date.now()/1000)) {
+                        console.error('[init-config] Stored token expired — will prompt for new one.');
+                        process.exit(0);
+                      }
+                    }
+                    const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+                    c.models.providers.e2e.apiKey = token;
+                    fs.writeFileSync(p, JSON.stringify(c, null, 2));
+                    console.error('[init-config] E2E token loaded from PVC into openclaw.json');
+                  } catch(e) { console.error('[init-config] Token load error:', e.message); }
+                " 2>&1 || true
+              fi
+
+              # Telegram — SECURE by default (never open to the public internet).
+              if printf '%s' "$TELEGRAM_BOT_TOKEN" | grep -qE '^[0-9]{6,}:[A-Za-z0-9_-]{30,}$'; then
+                cp /config/tg-pairing-mcp.js /home/node/.openclaw/tg-pairing-mcp.js 2>/dev/null || true
                 node -e "
                   const fs = require('fs');
                   const p = '/home/node/.openclaw/openclaw.json';
                   const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  if (!c.models) c.models = {};
-                  if (!c.models.providers) c.models.providers = {};
-                  if (!c.models.providers.openai) c.models.providers.openai = {};
-                  c.models.providers.openai.baseUrl = 'https://api.fireworks.ai/inference/v1';
-                  c.models.providers.openai.apiKey  = process.env.FIREWORKS_API_KEY;
+                  const ids = (process.env.TELEGRAM_ALLOWED_USER_IDS||'').split(',').map(s=>s.trim()).filter(Boolean);
+                  c.channels = { telegram: {
+                    enabled: true,
+                    dmPolicy: ids.length ? 'allowlist' : 'pairing',
+                    allowFrom: ids,
+                    botToken: process.env.TELEGRAM_BOT_TOKEN
+                  } };
+                  if (!c.mcp) c.mcp = {};
+                  if (!c.mcp.servers) c.mcp.servers = {};
+                  c.mcp.servers['telegram-pairing'] = { command: 'node', args: ['/home/node/.openclaw/tg-pairing-mcp.js'] };
                   fs.writeFileSync(p, JSON.stringify(c,null,2));
                 " 2>/dev/null || true
+                if [ -n "$TELEGRAM_ALLOWED_USER_IDS" ]; then
+                  echo "[init-config] Telegram: allowlist mode."
+                else
+                  echo "[init-config] Telegram: pairing mode."
+                fi
               fi
 
-              if [ -n "${OPENAI_API_BASE}" ]; then
+              # Slack MCP server
+              if printf '%s' "$SLACK_BOT_TOKEN" | grep -q '^xoxb-'; then
                 node -e "
                   const fs = require('fs');
                   const p = '/home/node/.openclaw/openclaw.json';
                   const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  if (c.models && c.models.providers && c.models.providers.openai)
-                    c.models.providers.openai.baseUrl = process.env.OPENAI_API_BASE;
+                  if (!c.mcp) c.mcp = {};
+                  if (!c.mcp.servers) c.mcp.servers = {};
+                  c.mcp.servers.slack = {
+                    command: 'npx',
+                    args: ['-y', '@modelcontextprotocol/server-slack@2025.4.25'],
+                    env: {
+                      SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN,
+                      SLACK_TEAM_ID: process.env.SLACK_TEAM_ID || ''
+                    }
+                  };
                   fs.writeFileSync(p, JSON.stringify(c,null,2));
                 " 2>/dev/null || true
+                echo "[init-config] Slack MCP server registered."
               fi
 
-              # Telegram
-              if [ ${#TELEGRAM_BOT_TOKEN} -gt 10 ]; then
-                node -e "
-                  const fs = require('fs');
-                  const p = '/home/node/.openclaw/openclaw.json';
-                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  c.channels = { telegram: { enabled: true, dmPolicy: 'open', allowFrom: ['*'], botToken: process.env.TELEGRAM_BOT_TOKEN } };
-                  fs.writeFileSync(p, JSON.stringify(c,null,2));
-                " 2>/dev/null || true
-                echo "[init-config] Telegram configured."
-              fi
-
-              # Inject Plane connection into openclaw.json env section
+              # Disable vector memory search — no embedding provider configured
               node -e "
                 const fs = require('fs');
                 const p = '/home/node/.openclaw/openclaw.json';
-                const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                if (!c.env) c.env = {};
-                c.env.PLANE_BASE_URL = 'http://{{ .Release.Name }}-api:8000';
-                c.env.PLANE_WORKSPACE = process.env.PLANE_WORKSPACE_SLUG || 'my-team';
-                c.env.PLANE_AGENT_TOKEN = process.env.PLANE_AGENT_TOKEN;
-                if (process.env.SLACK_BOT_TOKEN) c.env.SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-                if (process.env.SLACK_STANDUP_CHANNEL) c.env.SLACK_STANDUP_CHANNEL = process.env.SLACK_STANDUP_CHANNEL;
-                fs.writeFileSync(p, JSON.stringify(c,null,2));
-                console.error('[init-config] Plane + Slack env injected into openclaw.json.');
-              " 2>/dev/null || true
+                const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+                if (!c.agents) c.agents = {};
+                if (!c.agents.defaults) c.agents.defaults = {};
+                c.agents.defaults.memorySearch = { enabled: false };
+                fs.writeFileSync(p, JSON.stringify(c, null, 2));
+                console.error('[init-config] memorySearch disabled.');
+              " 2>&1 || true
 
-              # Copy AGENTS.md, identity files, and scripts
+              # Copy identity files and scripts to workspace
               cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
               for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md; do
                 cp /config/$f /home/node/.openclaw/workspace/$f
               done
               [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
               [ -f /home/node/.openclaw/workspace/USER.md ]   || cp /config/USER.md   /home/node/.openclaw/workspace/USER.md
-              cp /config/plane.js /home/node/.openclaw/workspace/plane.js && chmod 755 /home/node/.openclaw/workspace/plane.js
-              cp /config/slack.js /home/node/.openclaw/workspace/slack.js && chmod 755 /home/node/.openclaw/workspace/slack.js
-              echo "[init-config] Identity files, AGENTS.md, plane.js, slack.js installed."
+              cp /config/zoho-sprints.js /home/node/.openclaw/workspace/zoho-sprints.js && chmod 755 /home/node/.openclaw/workspace/zoho-sprints.js
+              echo "[init-config] Identity files, AGENTS.md, zoho-sprints.js installed."
 
               # Init context.json if not exists
               node -e "
@@ -185,43 +198,63 @@ spec:
                 console.error('[init-config] exec-approvals.json written.');
               " 2>&1 || true
 
-              # Rebuild memory index so memory search works on every fresh deploy.
-              # Clears stale index metadata that accumulates when AI provider/model changes.
-              HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
-                node /app/dist/index.js memory index --force 2>/dev/null || true
-              echo "[init-config] Memory index rebuilt."
+              # Write Zoho credentials to PVC if provided via env (env vars take precedence;
+              # if blank, any values previously saved via chat are preserved).
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/zoho-credentials.json';
+                const id  = process.env.ZOHO_CLIENT_ID     || '';
+                const sec = process.env.ZOHO_CLIENT_SECRET || '';
+                const tok = process.env.ZOHO_REFRESH_TOKEN || '';
+                const wid = process.env.ZOHO_WORKSPACE_ID  || '';
+                if (!id && !sec && !tok && !wid) {
+                  console.error('[init-config] No Zoho creds in env — PVC file unchanged.');
+                  process.exit(0);
+                }
+                let existing = {};
+                try { existing = JSON.parse(fs.readFileSync(p,'utf8')); } catch(e) {}
+                const merged = {
+                  clientId:     id  || existing.clientId     || '',
+                  clientSecret: sec || existing.clientSecret || '',
+                  refreshToken: tok || existing.refreshToken || '',
+                  workspaceId:  wid || existing.workspaceId  || '',
+                  savedAt: new Date().toISOString()
+                };
+                fs.writeFileSync(p, JSON.stringify(merged,null,2));
+                console.error('[init-config] Zoho credentials saved to PVC.');
+              " 2>&1 || true
 
               echo "[init-config] All scripts ready."
           env:
-            - name: ANTHROPIC_API_KEY
+            - name: E2E_BEARER_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: ANTHROPIC_API_KEY
+                  key: E2E_BEARER_TOKEN
                   optional: true
-            - name: OPENAI_API_KEY
+            - name: ZOHO_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: OPENAI_API_KEY
+                  key: ZOHO_CLIENT_ID
                   optional: true
-            - name: GOOGLE_API_KEY
+            - name: ZOHO_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: GOOGLE_API_KEY
+                  key: ZOHO_CLIENT_SECRET
                   optional: true
-            - name: GROQ_API_KEY
+            - name: ZOHO_REFRESH_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: GROQ_API_KEY
+                  key: ZOHO_REFRESH_TOKEN
                   optional: true
-            - name: FIREWORKS_API_KEY
+            - name: ZOHO_WORKSPACE_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: FIREWORKS_API_KEY
+                  key: ZOHO_WORKSPACE_ID
                   optional: true
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
@@ -229,24 +262,30 @@ spec:
                   name: {{ .Release.Name }}-credentials
                   key: TELEGRAM_BOT_TOKEN
                   optional: true
-            - name: PLANE_AGENT_TOKEN
+            - name: TELEGRAM_CHAT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: PLANE_AGENT_TOKEN
-            - name: PLANE_WORKSPACE_SLUG
+                  key: TELEGRAM_CHAT_ID
+                  optional: true
+            - name: TELEGRAM_ALLOWED_USER_IDS
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: PLANE_WORKSPACE_SLUG
+                  key: TELEGRAM_ALLOWED_USER_IDS
+                  optional: true
             - name: SLACK_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
                   key: SLACK_BOT_TOKEN
                   optional: true
-            - name: OPENAI_API_BASE
-              value: {{ .Values.openclaw.openaiApiBase | quote }}
+            - name: SLACK_TEAM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: SLACK_TEAM_ID
+                  optional: true
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -284,41 +323,29 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
                   key: OPENCLAW_GATEWAY_TOKEN
-            - name: ANTHROPIC_API_KEY
+            - name: ZOHO_CLIENT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: ANTHROPIC_API_KEY
+                  key: ZOHO_CLIENT_ID
                   optional: true
-            - name: OPENAI_API_KEY
+            - name: ZOHO_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: OPENAI_API_KEY
+                  key: ZOHO_CLIENT_SECRET
                   optional: true
-            - name: GOOGLE_API_KEY
+            - name: ZOHO_REFRESH_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: GOOGLE_API_KEY
+                  key: ZOHO_REFRESH_TOKEN
                   optional: true
-            - name: GROQ_API_KEY
+            - name: ZOHO_WORKSPACE_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: GROQ_API_KEY
-                  optional: true
-            - name: FIREWORKS_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-credentials
-                  key: FIREWORKS_API_KEY
-                  optional: true
-            - name: TELEGRAM_BOT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-credentials
-                  key: TELEGRAM_BOT_TOKEN
+                  key: ZOHO_WORKSPACE_ID
                   optional: true
             - name: SLACK_BOT_TOKEN
               valueFrom:
@@ -326,18 +353,42 @@ spec:
                   name: {{ .Release.Name }}-credentials
                   key: SLACK_BOT_TOKEN
                   optional: true
-            - name: PLANE_AGENT_TOKEN
+            - name: SLACK_TEAM_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: PLANE_AGENT_TOKEN
-            - name: PLANE_WORKSPACE
+                  key: SLACK_TEAM_ID
+                  optional: true
+            - name: SLACK_STANDUP_CHANNEL
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-credentials
-                  key: PLANE_WORKSPACE_SLUG
-            - name: PLANE_BASE_URL
-              value: "http://{{ .Release.Name }}-api:8000"
+                  key: SLACK_STANDUP_CHANNEL
+                  optional: true
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_CHAT_ID
+                  optional: true
+            - name: TELEGRAM_ALLOWED_USER_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_ALLOWED_USER_IDS
+                  optional: true
+            - name: STAKEHOLDER_EMAILS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: STAKEHOLDER_EMAILS
+                  optional: true
           livenessProbe:
             tcpSocket:
               port: 18789
@@ -358,6 +409,55 @@ spec:
               mountPath: /home/node/.openclaw
             - name: tmp-volume
               mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        - name: e2e-setup-proxy
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/config/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

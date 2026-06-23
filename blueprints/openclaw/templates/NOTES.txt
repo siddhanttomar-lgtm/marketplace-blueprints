@@ -1,8 +1,0 @@
-OpenClaw AI Gateway is deploying.
-
-Access the gateway at the URL provided by the platform.
-
-Authenticate with your gateway token:
-  Authorization: Bearer <your-gateway-token>
-
-The control UI is available at the root path once the pod is ready.

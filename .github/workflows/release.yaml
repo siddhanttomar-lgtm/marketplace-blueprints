@@ -3,7 +3,7 @@ name: Release Charts
 on:
   push:
     tags:
-      - '*-v*'    # e.g. redis-v1.0.0
+      - '*-v*'    # e.g. n8n-v2.0.8, apisix-v3.3.0
 
 permissions:
   contents: write

@@ -1,0 +1,14 @@
+# Example values for NVIDIA cuFOLIO
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+# Requires an H100-class GPU node (compute capability >= 9.0).
+
+ngcApiKey: "nvapi-YOUR-NGC-API-KEY"
+
+# Optional: protect Jupyter Lab with credentials
+auth:
+  username: "your-username"
+  password: "YOUR-STRONG-PASSWORD"
+
+storage:
+  dataSize: "100Gi"
+  cacheSize: "50Gi"

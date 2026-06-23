@@ -1,19 +1,14 @@
 B2B SDR Agent deployed!
 
-⏳ First boot takes 3-5 min: Postgres init → Twenty migrations → OpenClaw startup
+⏳ First boot takes 2-3 min: OpenClaw startup + workspace initialization
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ACCESS YOUR SDR AGENT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-OpenClaw Control UI (primary — marketplace URL):
+OpenClaw Control UI:
   → Accessible at the URL shown in your E2E Marketplace dashboard
   → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
-
-Twenty CRM (secondary UI):
-  kubectl get svc {{ .Release.Name }}-twenty -n {{ .Release.Namespace }}
-  → Open http://<NodeIP>:<NodePort>
-  → Create your admin account on first visit
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 1 — CONNECT YOUR MESSAGING CHANNEL
@@ -25,41 +20,48 @@ In OpenClaw Control UI → Channels:
   • Slack: add your bot token
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 2 — CONNECT YOUR AI MODEL
+STEP 2 — HUBSPOT CRM INTEGRATION (optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.integrations.hubspot.accessToken }}
+
+  ✓ HubSpot token detected — CRM sync is active.
+{{- else }}
+
+  HubSpot is not configured. To enable CRM sync, either:
+
+  A) Set at deploy time:
+       --set integrations.hubspot.accessToken=pat-na1-...
+
+  B) Set at chat time (no restart needed):
+       In the OpenClaw chat, run:
+       node /home/node/.openclaw/workspace/save-hubspot-creds.js pat-na1-...
+
+  To get your token:
+    HubSpot → Settings → Integrations → Private Apps → Create app
+    Required scopes: crm.objects.contacts.read + crm.objects.contacts.write
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW THE SDR PIPELINE WORKS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-In OpenClaw Control UI → Models:
-  • Claude: use ANTHROPIC_API_KEY already set (if provided)
-  • GPT-4: use OPENAI_API_KEY already set (if provided)
-  • Local: point to an Ollama endpoint on your network
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HOW THE SDR PIPELINE WORKS (v2 — autonomous)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Two lanes run side by side:
-
-INTERACTIVE LANE (chat — same as v1)
+INTERACTIVE LANE (chat)
 1. Lead messages your Telegram bot / web chat
 2. {{ .Values.openclaw.sdrName }} qualifies them with BANT questions
-3. The agent auto-registers the lead into the CRM + autonomous engine
+3. The agent auto-registers the lead and optionally syncs to HubSpot
 
-AUTONOMOUS LANE (background — new in v2, no prompting needed)
+AUTONOMOUS LANE (background)
   • Scoring: each new lead is enriched + scored 0-100 on ICP fit
   • Auto-outreach: leads scoring >= {{ .Values.outreach.leadScoreThreshold }} get a personalized first email
-  • Reply handling: inbound replies are polled every {{ .Values.outreach.replyPollMinutes }} min, intent-classified, answered
+  • Reply handling: inbound replies polled every {{ .Values.outreach.replyPollMinutes }} min, intent-classified, answered
   • Follow-ups: day {{ .Values.outreach.followUpDays }} sequence, auto-stops on reply
-  • Guardrail: {{- if .Values.outreach.autoSendEnabled }} AUTO-SEND ON — emails send without review {{- else }} AUTO-SEND OFF — drafts go to Telegram for your approval first {{- end }}
-
-  Flip autonomy with:  helm upgrade {{ .Release.Name }} b2b-sdr-agent --set outreach.autoSendEnabled=true
+  • Guardrail: {{- if .Values.outreach.autoOutreachEnabled }} AUTO-SEND ON — emails send without review {{- else }} AUTO-SEND OFF — drafts go to Telegram for approval first {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TURNING THE AUTONOMOUS LOOPS ON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SET AT LAUNCH (you already have these — no need to wait):
   • Gmail: openclaw.gmailUser + openclaw.gmailAppPassword  (powers send + reply polling)
-  • LLM:   one of openclaw.anthropicApiKey / openaiApiKey / googleApiKey / groqApiKey
 
   Gmail needs IMAP enabled (Gmail → Settings → Forwarding and POP/IMAP → Enable IMAP)
   and a 16-char App Password (myaccount.google.com/apppasswords), NOT your login password.
@@ -69,24 +71,6 @@ SET AT LAUNCH (you already have these — no need to wait):
   ⚠ Gmail creds not set yet — reply polling + outbound stay idle until you add them.
 {{- end }}
 
-SET AFTER FIRST BOOT (Twenty mints this itself — it can't exist before the CRM runs):
-  • Twenty API key — needed so the engine can sync leads/deals into the CRM:
-      1. Open Twenty CRM → Settings → API & Webhooks → API keys → Generate
-      2. helm upgrade {{ .Release.Name }} b2b-sdr-agent --set twenty.apiKey=YOUR-TWENTY-KEY
-  • (Optional) Telegram approvals: --set telegram.approvalChatId=YOUR-CHAT-ID
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-IMPORTANT: UPDATE SERVER_URL FOR EMAIL LINKS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{- if not .Values.twenty.serverUrl }}
-
-SERVER_URL is not set. Email notification links in Twenty CRM will use
-the internal service URL and won't be clickable from outside the cluster.
-
-To fix: get your Twenty CRM NodePort URL, then upgrade the chart:
-  helm upgrade {{ .Release.Name }} b2b-sdr-agent --set twenty.serverUrl=http://NODE_IP:NODE_PORT
-{{- end }}
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TROUBLESHOOTING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -94,8 +78,5 @@ TROUBLESHOOTING
 OpenClaw not responding after 3 min:
   kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
 
-Twenty not loading:
-  kubectl logs -l app.kubernetes.io/component=twenty -n {{ .Release.Namespace }}
-
-Postgres startup issues:
-  kubectl logs -l app.kubernetes.io/component=postgres -n {{ .Release.Namespace }}
+Automation scheduler logs:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c automation -n {{ .Release.Namespace }}

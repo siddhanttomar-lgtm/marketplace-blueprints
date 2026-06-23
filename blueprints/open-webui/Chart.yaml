@@ -1,7 +1,8 @@
 apiVersion: v2
 appVersion: 1.0.0
-description: Open WebUI + LiteLLM Router + Ollama — Private AI Workspace with multi-model
-  support
+description: AI Chat Workspace — OpenWebUI + LiteLLM key-driven router + Whisper STT.
+  Bring your own API keys (OpenAI, Anthropic, Groq, Gemini, Fireworks, Mistral, Perplexity)
+  or use E2E TIR GenAI free models (no Ollama).
 name: open-webui
 type: application
 version: 1.0.0

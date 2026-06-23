@@ -1,7 +1,7 @@
 apiVersion: v2
-appVersion: 4.1.0
-description: B2B SDR Agent — OpenClaw AI gateway + Twenty CRM with an autonomous outreach
-  engine (scoring, auto-outreach, reply handling, follow-ups)
+appVersion: 5.0.0
+description: B2B SDR Agent — OpenClaw AI gateway with autonomous outreach engine and
+  optional HubSpot CRM integration (bring your own HubSpot account).
 name: b2b-sdr-agent
 type: application
-version: 4.1.0
+version: 5.0.0

@@ -16,10 +16,12 @@ spec:
       {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels:
         {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 8 }}
     spec:
-      serviceAccountName: {{ .Release.Name }}-openclaw-patcher
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
       imagePullSecrets:
         - name: registry-pull-secret
       securityContext:
@@ -61,67 +63,21 @@ spec:
               cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
               cp /config/SOUL.md /home/node/.openclaw/workspace/SOUL.md
               cp /config/BOOTSTRAP.md /home/node/.openclaw/workspace/BOOTSTRAP.md
+              # Telegram pairing-approval MCP helper — the gateway spawns it from the PVC.
+              cp /config/tg-pairing-mcp.js /home/node/.openclaw/tg-pairing-mcp.js
               echo "[init-config] Config files copied."
 
-              # Select provider from whichever native API key the buyer provided.
-              # >30 chars filters out platform-injected placeholder values.
-              if [ ${#ANTHROPIC_API_KEY} -gt 30 ]; then
-                PROVIDER="anthropic"
-                MODEL_ID="claude-sonnet-4-5"
-              elif [ ${#OPENAI_API_KEY} -gt 30 ]; then
-                PROVIDER="openai"
-                MODEL_ID="gpt-4o-mini"
-              elif [ ${#GOOGLE_API_KEY} -gt 20 ]; then
-                PROVIDER="google"
-                MODEL_ID="gemini-2.0-flash"
-              elif [ ${#GROQ_API_KEY} -gt 30 ]; then
-                PROVIDER="groq"
-                MODEL_ID="qwen-qwq-32b"
-              elif [ ${#FIREWORKS_API_KEY} -gt 10 ]; then
-                PROVIDER="openai"
-                MODEL_ID="accounts/fireworks/models/deepseek-v4-pro"
-                FIREWORKS_MODE="true"
-              else
-                echo "[init-config] WARNING: no valid API key found — set at least one API key to use the agent."
-                PROVIDER=""
-                MODEL_ID=""
+              # Pre-load E2E bearer token from secret if provided (speeds up first boot).
+              if [ ${#E2E_BEARER_TOKEN} -gt 10 ]; then
+                mkdir -p /home/node/.openclaw
+                printf '{"token":"%s","savedAt":"pre-loaded"}' "${E2E_BEARER_TOKEN}" > /home/node/.openclaw/e2e-token.json
+                echo "[init-config] E2E bearer token pre-loaded from secret."
               fi
 
-              # Set active model only if a key was found.
-              if [ -n "$PROVIDER" ] && [ -n "$MODEL_ID" ]; then
-                HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
-                  node /app/dist/index.js models set "${PROVIDER}/${MODEL_ID}" 2>/dev/null || true
-                echo "[init-config] Default model: ${PROVIDER}/${MODEL_ID}"
-              fi
-
-              # If Fireworks key detected: inject baseUrl + apiKey so gateway uses Fireworks endpoint.
-              if [ "${FIREWORKS_MODE}" = "true" ]; then
-                node -e "
-                  const fs = require('fs');
-                  const p = '/home/node/.openclaw/openclaw.json';
-                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  if (!c.models) c.models = {};
-                  if (!c.models.providers) c.models.providers = {};
-                  if (!c.models.providers.openai) c.models.providers.openai = {};
-                  c.models.providers.openai.baseUrl = 'https://api.fireworks.ai/inference/v1';
-                  c.models.providers.openai.apiKey  = process.env.FIREWORKS_API_KEY;
-                  fs.writeFileSync(p, JSON.stringify(c,null,2));
-                " 2>/dev/null || true
-                echo "[init-config] Fireworks mode: baseUrl + apiKey injected, model=${MODEL_ID}"
-              fi
-
-              # Inject custom OpenAI-compatible baseUrl if provided (e.g. Fireworks, Together AI).
-              if [ -n "${OPENAI_API_BASE}" ]; then
-                node -e "
-                  const fs = require('fs');
-                  const p = '/home/node/.openclaw/openclaw.json';
-                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  if (c.models && c.models.providers && c.models.providers.openai)
-                    c.models.providers.openai.baseUrl = process.env.OPENAI_API_BASE;
-                  fs.writeFileSync(p, JSON.stringify(c,null,2));
-                " 2>/dev/null || true
-                echo "[init-config] Custom OpenAI baseUrl set: ${OPENAI_API_BASE}"
-              fi
+              # Set e2e as the active model provider.
+              HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                node /app/dist/index.js models set "e2e/gpt_oss_120b" 2>/dev/null || true
+              echo "[init-config] Default model: e2e/gpt_oss_120b"
 
               # Install nodemailer to PVC + write send-email.js if Gmail credentials provided.
               if [ ${#GMAIL_USER} -gt 3 ] && [ ${#GMAIL_APP_PASSWORD} -gt 10 ]; then
@@ -286,17 +242,30 @@ spec:
               " 2>/dev/null || true
               echo "[init-config] notify-operator.js written to workspace."
 
-              # Inject channels.telegram if bot token provided.
-              # dmPolicy=open + allowFrom=["*"]: zero-friction — no pairing prompt for end users.
+              # Inject channels.telegram — pairing-only, secure by default.
+              # The Telegram user is the OPERATOR (your boss); leads come in via email. Activates
+              # only for a real bot-token shape (<digits>:<secret>) so the platform's auto-generated
+              # placeholder for the blank field is ignored and can't crash-loop the channel. Unknown
+              # DMs are HELD pending until the operator approves them from the Control UI via the
+              # telegram-pairing MCP tools (the only approval path — no shell/CLI needed). NEVER use
+              # dmPolicy:'open' — that bypasses the gateway-token gate and leaves the bot open.
               if [ ${#TELEGRAM_BOT_TOKEN} -gt 10 ]; then
                 node -e "
                   const fs = require('fs');
                   const p = '/home/node/.openclaw/openclaw.json';
+                  const tok = process.env.TELEGRAM_BOT_TOKEN || '';
+                  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(tok)) {
+                    console.error('[init-config] TELEGRAM_BOT_TOKEN is not a valid bot-token shape — skipping Telegram.');
+                    process.exit(0);
+                  }
                   const c = JSON.parse(fs.readFileSync(p,'utf8'));
-                  c.channels = { telegram: { enabled: true, dmPolicy: 'open', allowFrom: ['*'], botToken: process.env.TELEGRAM_BOT_TOKEN } };
+                  c.channels = { telegram: { enabled: true, dmPolicy: 'pairing', allowFrom: [], botToken: tok } };
+                  if (!c.mcp) c.mcp = {};
+                  if (!c.mcp.servers) c.mcp.servers = {};
+                  c.mcp.servers['telegram-pairing'] = { command: 'node', args: ['/home/node/.openclaw/tg-pairing-mcp.js'] };
                   fs.writeFileSync(p, JSON.stringify(c,null,2));
-                " 2>/dev/null || true
-                echo "[init-config] Telegram channel configured."
+                  console.error('[init-config] Telegram channel configured (pairing mode + approval MCP).');
+                " 2>&1 || true
               fi
 
               # Pre-approve exec calls so the SDR agent can run send-email.js without prompting.
@@ -324,6 +293,70 @@ spec:
                 }
               " 2>&1 || true
 
+              # Pre-load HubSpot credentials from secret if provided at deploy time.
+              if [ ${#HUBSPOT_ACCESS_TOKEN} -gt 10 ]; then
+                node -e "
+                  const fs=require('fs');
+                  const base=(process.env.HUBSPOT_API_BASE||'https://api.hubapi.com').replace(/\/+\$/,'');
+                  fs.writeFileSync('/home/node/.openclaw/hubspot-creds.json',
+                    JSON.stringify({accessToken:process.env.HUBSPOT_ACCESS_TOKEN,apiBase:base,savedAt:'pre-loaded'},null,2));
+                  console.error('[init-config] HubSpot token pre-loaded from secret.');
+                " 2>/dev/null || true
+              fi
+
+              # Write save-hubspot-creds.js — lets the operator set HubSpot token at chat time.
+              node -e "
+                const fs = require('fs');
+                const script = [
+                  \"'use strict';\",
+                  \"const fs = require('fs');\",
+                  \"const token = (process.argv[2] || '').trim();\",
+                  \"const apiBase = (process.argv[3] || 'https://api.hubapi.com').replace(/\\/+\$/, '');\",
+                  \"if (!/^pat-/.test(token)) { console.error('Invalid HubSpot token. Expected a Private App token starting with pat-.'); process.exit(1); }\",
+                  \"const f = (process.env.STATE_DIR || '/home/node/.openclaw') + '/hubspot-creds.json';\",
+                  \"fs.writeFileSync(f, JSON.stringify({ accessToken: token, apiBase: apiBase, savedAt: new Date().toISOString() }, null, 2));\",
+                  \"console.log('HubSpot token saved. CRM sync is now active (no restart needed).');\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/save-hubspot-creds.js', script);
+              " 2>/dev/null || true
+
+              # Write hubspot.js — CRM tool for agent: find <email> and upsert.
+              node -e "
+                const fs = require('fs');
+                const script = [
+                  \"'use strict';\",
+                  \"const fs = require('fs');\",
+                  \"const cmd = process.argv[2], arg = process.argv.slice(3).join(' ');\",
+                  \"function loadCreds() {\",
+                  \"  try { return JSON.parse(fs.readFileSync((process.env.STATE_DIR||'/home/node/.openclaw')+'/hubspot-creds.json','utf8')); } catch(e) { return null; }\",
+                  \"}\",
+                  \"async function findContact(email) {\",
+                  \"  const c = loadCreds(); if (!c || !c.accessToken) { console.error('No HubSpot credentials. Run: node save-hubspot-creds.js <pat-...>'); process.exit(1); }\",
+                  \"  const base = (c.apiBase||'https://api.hubapi.com').replace(/\\/+\$/,'');\",
+                  \"  const r = await fetch(base+'/crm/v3/objects/contacts/'+encodeURIComponent(email)+'?idProperty=email', { headers: { authorization: 'Bearer '+c.accessToken } });\",
+                  \"  if (r.status === 404) { console.log(JSON.stringify({found:false})); return; }\",
+                  \"  if (!r.ok) { console.error('HubSpot error HTTP '+r.status); process.exit(1); }\",
+                  \"  const j = await r.json(); console.log(JSON.stringify({found:true,id:j.id,properties:j.properties},null,2));\",
+                  \"}\",
+                  \"async function upsertContact(email, firstName, lastName, company) {\",
+                  \"  const c = loadCreds(); if (!c || !c.accessToken) { console.error('No HubSpot credentials.'); process.exit(1); }\",
+                  \"  const base = (c.apiBase||'https://api.hubapi.com').replace(/\\/+\$/,'');\",
+                  \"  const H = { authorization: 'Bearer '+c.accessToken, 'content-type': 'application/json' };\",
+                  \"  const props = { email, firstname: firstName||'', lastname: lastName||'' };\",
+                  \"  if (company) props.company = company.slice(0,100);\",
+                  \"  let r = await fetch(base+'/crm/v3/objects/contacts', { method:'POST', headers:H, body:JSON.stringify({properties:props}) });\",
+                  \"  if (r.status === 409) r = await fetch(base+'/crm/v3/objects/contacts/'+encodeURIComponent(email)+'?idProperty=email', { method:'PATCH', headers:H, body:JSON.stringify({properties:props}) });\",
+                  \"  if (!r.ok) { console.error('HubSpot error HTTP '+r.status); process.exit(1); }\",
+                  \"  const j = await r.json(); console.log(JSON.stringify({id:j.id,email},null,2));\",
+                  \"}\",
+                  \"if (cmd==='find' && arg) findContact(arg).catch(e=>{console.error(e.message);process.exit(1);});\",
+                  \"else if (cmd==='upsert' && arg) { const p=arg.split(/\\\\s+/); upsertContact(p[0],p[1],p[2],p.slice(3).join(' ')).catch(e=>{console.error(e.message);process.exit(1);}); }\",
+                  \"else { console.error('Usage: hubspot.js find <email> | hubspot.js upsert <email> <firstName> <lastName> [company]'); process.exit(1); }\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/hubspot.js', script);
+              " 2>/dev/null || true
+              echo "[init-config] HubSpot workspace scripts written."
+
               # Copy reference MD files from ConfigMap (always overwrite — read-only reference content).
               for f in TOOLS.md IDENTITY.md USER.md HEARTBEAT.md; do
                 cp /config/$f /home/node/.openclaw/workspace/$f
@@ -335,35 +368,23 @@ spec:
               echo "[init-config] workspace files initialized."
 
           env:
-            - name: ANTHROPIC_API_KEY
+            - name: E2E_PROJECT_NAMESPACE
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: ANTHROPIC_API_KEY
+                  key: E2E_PROJECT_NAMESPACE
                   optional: true
-            - name: OPENAI_API_KEY
+            - name: E2E_MODEL_NAME
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: OPENAI_API_KEY
+                  key: E2E_MODEL_NAME
                   optional: true
-            - name: GOOGLE_API_KEY
+            - name: E2E_BEARER_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
-                  key: GOOGLE_API_KEY
-                  optional: true
-            - name: GROQ_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: GROQ_API_KEY
-                  optional: true
-            - name: FIREWORKS_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: FIREWORKS_API_KEY
+                  key: E2E_BEARER_TOKEN
                   optional: true
             - name: GMAIL_USER
               valueFrom:
@@ -394,10 +415,20 @@ spec:
                   name: {{ .Release.Name }}-secrets
                   key: TELEGRAM_APPROVAL_CHAT_ID
                   optional: true
-            - name: OPENAI_API_BASE
-              value: {{ .Values.openclaw.openaiApiBase | quote }}
             - name: COMPANY_DESCRIPTION
               value: {{ .Values.openclaw.companyDescription | quote }}
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_ACCESS_TOKEN
+                  optional: true
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_API_BASE
+                  optional: true
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -432,44 +463,23 @@ spec:
               value: production
             - name: NODE_OPTIONS
               value: "--dns-result-order=ipv4first"
-            - name: SEARXNG_BASE_URL
-              value: "http://{{ .Release.Name }}-searxng-svc:8080"
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_ACCESS_TOKEN
+                  optional: true
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_API_BASE
+                  optional: true
             - name: OPENCLAW_GATEWAY_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-secrets
                   key: OPENCLAW_GATEWAY_TOKEN
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: ANTHROPIC_API_KEY
-                  optional: true
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: OPENAI_API_KEY
-                  optional: true
-
-            - name: GOOGLE_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: GOOGLE_API_KEY
-                  optional: true
-            - name: GROQ_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: GROQ_API_KEY
-                  optional: true
-            - name: FIREWORKS_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secrets
-                  key: FIREWORKS_API_KEY
-                  optional: true
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -494,9 +504,6 @@ spec:
                   name: {{ .Release.Name }}-secrets
                   key: GMAIL_APP_PASSWORD
                   optional: true
-            # Twenty CRM — API key auto-generated at runtime by the automation sidecar.
-            - name: TWENTY_API_URL
-              value: {{ include "b2b-sdr.twentyInternalUrl" . | quote }}
           resources:
             {{- toYaml .Values.openclaw.resources | nindent 12 }}
           # tcpSocket liveness — port opens ~90-120s after start.
@@ -623,10 +630,14 @@ spec:
               value: {{ .Values.openclaw.sdrName | quote }}
             - name: COMPANY_NAME
               value: {{ .Values.openclaw.companyName | quote }}
-            - name: TWENTY_API_URL
-              value: {{ include "b2b-sdr.twentyInternalUrl" . | quote }}
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: HUBSPOT_ACCESS_TOKEN, optional: true }
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: HUBSPOT_API_BASE, optional: true }
             - name: OPENAI_API_BASE
-              value: {{ .Values.openclaw.openaiApiBase | quote }}
+              value: "http://localhost:3000"
             - name: OUTREACH_ENABLED
               value: {{ .Values.outreach.enabled | quote }}
             - name: OUTREACH_AUTO_OUTREACH
@@ -641,21 +652,6 @@ spec:
               value: {{ .Values.outreach.prospectingEnabled | quote }}
             - name: OUTREACH_MAX_EMAILS_PER_DAY
               value: {{ .Values.outreach.maxEmailsPerDay | quote }}
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: ANTHROPIC_API_KEY, optional: true }
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: OPENAI_API_KEY, optional: true }
-            - name: GOOGLE_API_KEY
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: GOOGLE_API_KEY, optional: true }
-            - name: GROQ_API_KEY
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: GROQ_API_KEY, optional: true }
-            - name: FIREWORKS_API_KEY
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: FIREWORKS_API_KEY, optional: true }
             - name: JINA_AI_KEY
               valueFrom:
                 secretKeyRef: { name: {{ .Release.Name }}-secrets, key: JINA_AI_KEY, optional: true }
@@ -665,12 +661,6 @@ spec:
             - name: GMAIL_APP_PASSWORD
               valueFrom:
                 secretKeyRef: { name: {{ .Release.Name }}-secrets, key: GMAIL_APP_PASSWORD, optional: true }
-            - name: TWENTY_ADMIN_EMAIL
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: TWENTY_ADMIN_EMAIL }
-            - name: TWENTY_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: TWENTY_ADMIN_PASSWORD }
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef: { name: {{ .Release.Name }}-secrets, key: TELEGRAM_BOT_TOKEN, optional: true }
@@ -694,6 +684,55 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             allowPrivilegeEscalation: false
+
+        # ─── E2E TIR Proxy ────────────────────────────────────────────────────
+        # Intercepts /v1/models, /v1/chat/completions, /v1/responses on :3000.
+        # In setup mode (no stored token) returns a welcome SSE asking for bearer token.
+        # On valid JWT input: saves to PVC, restarts pod so gateway picks it up.
+        - name: e2e-setup-proxy
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/config/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
 
       volumes:
         - name: openclaw-home

@@ -1,0 +1,28 @@
+{{- if .Values.streamlit.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  # The primary service is named exactly .Release.Name so the platform's
+  # BlueprintService workload_name_tpl resolves to it directly.
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "cufolio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cufolio
+spec:
+  {{- if .Values.ownGpu }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: cufolio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: {{ .Values.streamlit.port }}
+      {{- if .Values.ownGpu }}
+      nodePort: {{ .Values.streamlit.nodePort }}
+      {{- end }}
+{{- end }}

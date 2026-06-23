@@ -1,0 +1,63 @@
+{{- if .Values.kibana.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vss.fullname" . }}-kibana-init
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kibana-init
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "vss.fullname" . }}-nvcr-pull
+      containers:
+        - name: kibana-init
+          image: registry.e2enetworks.net/marketplace-blueprint/curlimages/curl:8.7.1
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              KIBANA="http://{{ include "vss.fullname" . }}-kibana:{{ .Values.kibana.port }}"
+
+              wait_kibana() {
+                echo "Waiting for Kibana at $KIBANA..."
+                until curl -sf "$KIBANA/api/status" | grep -q '"overall":{"level":"available"'; do
+                  sleep 10
+                done
+                echo "Kibana ready."
+              }
+
+              wait_kibana
+
+              # ── Create index patterns ──
+              for pattern in "mdx-*" "vss-*"; do
+                curl -sf -X POST "$KIBANA/api/saved_objects/index-pattern" \
+                  -H 'kbn-xsrf: true' \
+                  -H 'Content-Type: application/json' \
+                  -d "{\"attributes\":{\"title\":\"$pattern\",\"timeFieldName\":\"@timestamp\"}}" \
+                  && echo "Index pattern $pattern created." \
+                  || echo "Index pattern $pattern may already exist."
+              done
+
+              # ── Create VSS analytics dashboard ──
+              curl -sf -X POST "$KIBANA/api/saved_objects/_import" \
+                -H 'kbn-xsrf: true' \
+                -F "file=@/dev/stdin" <<'NDJSON' \
+                || echo "Dashboard import skipped (no pre-built dashboard ndjson)."
+              NDJSON
+
+              echo "Kibana initialization complete."
+
+{{- end }}

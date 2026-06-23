@@ -1,63 +1,18 @@
-# Claw Sales Agent (B2B SDR)
+# B2B SDR Agent
 
-E2E's Kubernetes deployment of the B2B SDR Agent — an AI-powered sales development representative built on [OpenClaw](https://github.com/openclaw/openclaw) and [Twenty CRM](https://twenty.com). Automate lead qualification, outreach, and CRM pipeline management.
+E2E's Kubernetes deployment of an autonomous B2B Sales Development Representative agent — qualifies inbound leads through chat, scores prospects, drafts personalized outreach emails, and syncs contacts to HubSpot CRM.
 
 ## What You Get After Deployment
 
-The E2E Marketplace provisions the SDR agent and CRM and shows access URLs in the dashboard.
+The E2E Marketplace provisions the OpenClaw-based SDR agent and shows the access URL in the dashboard.
 
 | Service | Port | Description |
 |---------|------|-------------|
-| OpenClaw SDR Interface | 80 | AI chat for SDR conversations and lead management |
-| Twenty CRM | 3000 | CRM dashboard for managing contacts, companies, and pipeline |
+| OpenClaw Control UI | 80 | SDR agent chat interface and lead management |
 
-Open the SDR interface at `http://<deployment-url>` to start qualifying leads and managing outreach. Open the CRM at `http://<deployment-url>:3000` to view your pipeline.
+Open the URL from the marketplace and authenticate with your gateway token.
 
-## Before You Deploy — Getting Your Credentials
-
-### LLM API Key (required — choose one)
-
-**Anthropic API Key** (recommended):
-1. Go to [console.anthropic.com](https://console.anthropic.com)
-2. Sign up or log in → **Settings → API Keys → Create Key**
-3. Copy the key (starts with `sk-ant-`)
-
-**OpenAI API Key:**
-1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-2. Sign in → **Create new secret key**, copy the key
-
-**Groq API Key:**
-1. Go to [console.groq.com/keys](https://console.groq.com/keys)
-2. Sign in → **Create API Key**, copy the key
-
-### Gmail App Password (required for outbound email)
-
-A Gmail App Password lets the SDR agent send emails from your Gmail account without using your actual account password.
-
-**Prerequisites:** Your Gmail account must have 2-Step Verification enabled.
-
-1. Go to [myaccount.google.com](https://myaccount.google.com)
-2. Click **Security** in the left menu
-3. Under "How you sign in to Google", click **2-Step Verification** (enable it if not already on)
-4. Scroll down and click **App passwords** (at the bottom of the 2-Step Verification page)
-5. Under "Select app", choose **Mail**
-6. Under "Select device", choose **Other (Custom name)** and type a name like `SDR Agent`
-7. Click **Generate**
-8. Copy the 16-character password shown (no spaces needed — ignore the spaces in the display)
-
-> **Important:** This is not your Gmail account password. It is a separate app-specific password that can be revoked at any time.
-
-### Telegram Bot Token (optional — for Telegram-based SDR interactions)
-1. Open Telegram and search for **@BotFather**
-2. Send `/newbot` → choose a name and username (must end in `bot`)
-3. BotFather replies with your token: `1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ`
-4. Copy this token
-
-### Twenty CRM App Secret
-Generate a random 64-character hex string to use as the Twenty CRM secret. You can use any password generator — it just needs to be long and random.
-
-### Gateway Token
-Choose a strong password for your AI gateway (32+ random characters).
+> **First boot:** Takes 2–3 minutes for OpenClaw startup and workspace initialization.
 
 ## Configuration
 
@@ -65,34 +20,51 @@ Fill in these values in the E2E Marketplace deployment form:
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `openclaw.gatewayToken` | Yes | Auth token for the AI gateway. Choose a strong random value. |
-| `openclaw.anthropicApiKey` | No | Anthropic Claude API key. At least one LLM key required. |
-| `openclaw.openaiApiKey` | No | OpenAI API key. |
-| `openclaw.groqApiKey` | No | Groq API key. |
-| `openclaw.sdrName` | No | SDR persona name shown in conversations. Default: `Alex`. |
+| `openclaw.gatewayToken` | Yes | Access token for the agent UI. Change from the default. |
+| `openclaw.e2eBearerToken` | No | E2E TIR bearer token for GenAI inference. Can be set in the UI after first login. |
 | `openclaw.companyName` | No | Your company name (shown in outreach emails). |
-| `openclaw.gmailUser` | Yes | Gmail address to send outreach from (e.g. `you@gmail.com`). |
-| `openclaw.gmailAppPassword` | Yes | Gmail App Password (16-character, from myaccount.google.com/apppasswords). |
-| `twenty.appSecret` | Yes | 64-character random hex secret for Twenty CRM. |
-| `twenty.serverUrl` | No | External URL of your deployment (for correct CRM links). |
-| `postgres.password` | Yes | Database password. |
+| `openclaw.companyDescription` | No | Product description used when drafting outreach. |
+| `openclaw.sdrName` | No | SDR persona name shown in conversations. Default: `Alex`. |
+| `openclaw.gmailUser` | No | Gmail address for outbound emails and reply polling. Required for autonomous outreach. |
+| `openclaw.gmailAppPassword` | No | Gmail App Password (16 chars, from myaccount.google.com/apppasswords). |
+| `integrations.hubspot.accessToken` | No | HubSpot Private App token (`pat-na1-...`) for CRM sync. |
 | `telegram.botToken` | No | Telegram bot token from @BotFather. |
+| `telegram.approvalChatId` | No | Telegram chat ID to receive draft approvals. |
+| `outreach.autoOutreachEnabled` | No | `true` = emails send autonomously; `false` (default) = drafts wait for approval. |
+| `outreach.leadScoreThreshold` | No | Minimum lead score (0–100) to trigger outreach sequence. Default: `0`. |
+| `outreach.maxEmailsPerDay` | No | Hard cap on autonomous outbound emails per day. Default: `50`. |
+
+## How the SDR Pipeline Works
+
+**Interactive lane:** Leads message via Telegram or web chat → agent qualifies with BANT questions → registers lead → syncs to HubSpot.
+
+**Autonomous lane (requires Gmail):** Scores each new lead → auto-outreach for qualifying leads → polls Gmail for replies → handles follow-ups on a configurable cadence.
 
 ## Ports
 
-| Port | Description |
-|------|-------------|
-| 80 | OpenClaw SDR interface |
-| 3000 | Twenty CRM dashboard |
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 80 | HTTP | OpenClaw Control UI |
 
 ## Troubleshooting
 
-**Emails not sending** — verify you are using a Gmail App Password (16 characters), not your Gmail account password. App passwords are generated at myaccount.google.com/apppasswords.
+**Agent not responding after 3 minutes:**
+```
+kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n <namespace>
+```
 
-**Twenty CRM blank page** — set `twenty.serverUrl` to the external URL of your deployment so CRM internal links resolve correctly.
+**Autonomous scheduler logs:**
+```
+kubectl logs -l app.kubernetes.io/component=openclaw -c automation -n <namespace>
+```
 
-**CRM migrations slow** — Twenty runs database migrations on first startup; allow 2–3 minutes before the CRM is accessible.
+**Gmail send/receive not working** — ensure IMAP is enabled in Gmail Settings and that you're using a 16-character App Password, not your login password.
+
+**HubSpot sync not active** — set the token via chat if not set at deploy time:
+```
+node /home/node/.openclaw/workspace/save-hubspot-creds.js pat-na1-...
+```
 
 ## License
 
-Apache 2.0. Component licenses: OpenClaw (Apache 2.0), Twenty CRM (AGPL-3.0).
+Apache 2.0.

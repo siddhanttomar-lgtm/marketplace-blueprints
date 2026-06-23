@@ -1,0 +1,376 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-openclaw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "oca.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  replicas: 1
+  # Recreate is MANDATORY — RollingUpdate holds the ReadWriteOnce PVC and hangs the new pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "oca.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "oca.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 8 }}
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Fix PVC root ownership so uid 1000 (gateway) can write to it.
+        - name: fix-permissions
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c", "chown -R 1000:1000 /home/node/.openclaw && chmod 755 /home/node/.openclaw && echo '[fix-permissions] done'"]
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+
+        # Build openclaw.json + SKILL.md from enabled plugins, copy persona files, set model.
+        - name: init-config
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "/config-init/init.sh"]
+          env:
+            - name: AGENT_NAME
+              value: {{ .Values.agentName | quote }}
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            # ── Plugin enable flags (from values) ────────────────────────────
+            - name: PLUGIN_GITHUB_ENABLED
+              value: {{ .Values.plugins.github.enabled | quote }}
+            - name: PLUGIN_SLACK_ENABLED
+              value: {{ .Values.plugins.slack.enabled | quote }}
+            - name: PLUGIN_NOTION_ENABLED
+              value: {{ .Values.plugins.notion.enabled | quote }}
+            - name: PLUGIN_JIRA_ENABLED
+              value: {{ .Values.plugins.jira.enabled | quote }}
+            # ── Control-UI exposure (from values) ────────────────────────────
+            - name: OPENCLAW_ALLOWED_ORIGINS
+              value: {{ .Values.openclaw.controlUi.allowedOrigins | quote }}
+            - name: OPENCLAW_DISABLE_DEVICE_AUTH
+              value: {{ .Values.openclaw.controlUi.disableDeviceAuth | quote }}
+            # ── Plugin credentials (from secret, optional) ───────────────────
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GITHUB_PERSONAL_ACCESS_TOKEN
+                  optional: true
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: SLACK_BOT_TOKEN
+                  optional: true
+            - name: SLACK_TEAM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: SLACK_TEAM_ID
+                  optional: true
+            - name: NOTION_INTEGRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: NOTION_INTEGRATION_TOKEN
+                  optional: true
+            - name: JIRA_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_HOST
+                  optional: true
+            - name: JIRA_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_EMAIL
+                  optional: true
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_API_TOKEN
+                  optional: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+            - name: config-init
+              mountPath: /config-init
+
+      containers:
+        # ─── OpenClaw Gateway ────────────────────────────────────────────────
+        # Plugins run as stdio MCP child processes spawned by the gateway via npx,
+        # so this single container needs every plugin credential in its environment.
+        - name: gateway
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: NODE_ENV
+              value: production
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            # Plugin credentials — read by the spawned MCP child processes.
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GITHUB_PERSONAL_ACCESS_TOKEN
+                  optional: true
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: SLACK_BOT_TOKEN
+                  optional: true
+            - name: SLACK_TEAM_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: SLACK_TEAM_ID
+                  optional: true
+            - name: NOTION_INTEGRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: NOTION_INTEGRATION_TOKEN
+                  optional: true
+            - name: JIRA_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_HOST
+                  optional: true
+            - name: JIRA_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_EMAIL
+                  optional: true
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: JIRA_API_TOKEN
+                  optional: true
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.openclaw.resources | nindent 12 }}
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── Ingress WebSocket Patcher ────────────────────────────────────────
+        # Patches the platform-created ingress with HAProxy WebSocket timeout annotations
+        # so the Control UI keeps long-lived connections alive.
+        - name: ingress-patcher
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command:
+            - node
+            - -e
+            - |
+              'use strict';
+              const https = require('https');
+              const fs   = require('fs');
+              const token   = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+              const ns      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+              const ca      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+              const ingress = 'ingress-{{ .Release.Name }}';
+              const base    = '/apis/networking.k8s.io/v1/namespaces/' + ns + '/ingresses/' + ingress;
+              const patch   = JSON.stringify({ metadata: { annotations: {
+                'haproxy-ingress.github.io/timeout-tunnel':        '1h',
+                'haproxy-ingress.github.io/health-check-interval': '0'
+              }}});
+              function apiCall(method, path, body) {
+                return new Promise(resolve => {
+                  const opts = { hostname: 'kubernetes.default.svc', path, method, ca,
+                    headers: { Authorization: 'Bearer ' + token } };
+                  if (body) { opts.headers['Content-Type'] = 'application/merge-patch+json';
+                    opts.headers['Content-Length'] = Buffer.byteLength(body); }
+                  const req = https.request(opts, res => { resolve(res.statusCode); res.resume(); });
+                  req.on('error', () => resolve(0));
+                  if (body) req.write(body);
+                  req.end();
+                });
+              }
+              async function run() {
+                for (let i = 0; i < 24; i++) {
+                  const status = await apiCall('GET', base, null);
+                  if (status === 200) {
+                    const patched = await apiCall('PATCH', base, patch);
+                    console.log('[ingress-patcher] patched ' + ingress + ' -> HTTP ' + patched);
+                    return;
+                  }
+                  console.log('[ingress-patcher] waiting for ingress (' + (i+1) + '/24)...');
+                  await new Promise(r => setTimeout(r, 5000));
+                }
+                console.log('[ingress-patcher] ingress not found after 120s — skipping');
+              }
+              run().catch(e => console.error('[ingress-patcher]', e))
+                   .finally(() => setInterval(() => {}, 2147483647));
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        - name: e2e-setup-proxy
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/config-init/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config-init
+              mountPath: /config-init
+
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openclaw-home
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-openclaw-config
+        - name: config-init
+          configMap:
+            name: {{ .Release.Name }}-openclaw-init
+        - name: tmp-volume
+          emptyDir: {}

@@ -39,23 +39,6 @@ spec:
             limits:
               cpu: 50m
               memory: 32Mi
-        - name: wait-for-model
-          image: registry.e2enetworks.net/marketplace-blueprint/busybox:1.36
-          imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for Ollama model {{ .Values.model }} to be pulled..."
-              until wget -qO- http://{{ include "open-webui.ollamaHost" . }}:11434/api/tags 2>/dev/null | grep -q "{{ .Values.model }}"; do
-                echo "Model not ready yet, sleeping 10s..."
-                sleep 10
-              done
-              echo "Model {{ .Values.model }} is ready."
-          resources:
-            limits:
-              cpu: 50m
-              memory: 32Mi
       containers:
         - name: open-webui
           image: "{{ .Values.webui.image.repository }}:{{ .Values.webui.image.tag }}"
@@ -70,10 +53,6 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            - name: ENABLE_OLLAMA_API
-              value: "true"
-            - name: OLLAMA_BASE_URL
-              value: "http://{{ include "open-webui.ollamaHost" . }}:11434"
             - name: ENABLE_OPENAI_API
               value: "true"
             - name: OPENAI_API_BASE_URL
@@ -85,7 +64,7 @@ spec:
             - name: ENABLE_SIGNUP
               value: "true"
             - name: DEFAULT_MODELS
-              value: {{ .Values.model | quote }}
+              value: "gpt_oss_120b"
             - name: PORT
               value: "8080"
             - name: WEBUI_ADMIN_EMAIL

@@ -5,7 +5,7 @@
 #   bash scripts/create-blueprint.sh <name> "<Display Name>" "<description>" "<appVersion>"
 #
 # Example:
-#   bash scripts/create-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+#   bash scripts/create-blueprint.sh my-tool "My Tool" "Brief description" "1.0.0"
 
 set -euo pipefail
 
@@ -44,7 +44,7 @@ if [ -z "$NAME" ] || [ -z "$DISPLAY_NAME" ] || [ -z "$DESCRIPTION" ] || [ -z "$A
   echo "  Usage: bash scripts/create-blueprint.sh <name> \"<Display Name>\" \"<description>\" \"<appVersion>\""
   echo ""
   echo "  Example:"
-  echo "    bash scripts/create-blueprint.sh mysql \"MySQL\" \"MySQL relational database\" \"8.4.0\""
+  echo "    bash scripts/create-blueprint.sh my-tool \"My Tool\" \"Brief description\" \"1.0.0\""
   echo ""
   exit 1
 fi

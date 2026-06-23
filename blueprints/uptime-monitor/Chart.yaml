@@ -1,6 +1,0 @@
-apiVersion: v2
-name: prometheus-blackbox
-description: Website uptime, response time and SSL monitoring with Grafana dashboards.
-type: application
-version: 2.0.0
-appVersion: "11.3.3"

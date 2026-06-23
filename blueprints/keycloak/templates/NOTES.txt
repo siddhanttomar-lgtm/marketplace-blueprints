@@ -1,9 +1,0 @@
-Keycloak is deploying. Allow 2-3 minutes for all pods to reach Ready state.
-
-Get the admin password:
-  kubectl get secret -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].data.admin-password}' | base64 -d
-
-Get the NodePort:
-  kubectl get svc -l app.kubernetes.io/name=keycloak -o jsonpath='{.items[0].spec.ports[0].nodePort}'
-
-Open the admin console: http://<node-ip>:<nodeport>/admin

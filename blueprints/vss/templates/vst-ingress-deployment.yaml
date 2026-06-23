@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-ingress
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vst-ingress
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vst-ingress
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vst-ingress
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "vss.fullname" . }}-nvcr-pull
+      containers:
+        - name: vst-ingress
+          image: {{ .Values.vst.ingress.image }}
+          ports:
+            - containerPort: {{ .Values.vst.ingress.port }}
+              name: http
+          command:
+            - nginx
+            - -g
+            - "daemon off;"
+            - -c
+            - /etc/nginx/nginx.conf
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: nginx-tmp
+              mountPath: /tmp/nginx
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.vst.ingress.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.vst.ingress.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.vst.ingress.resources | nindent 12 }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "vss.fullname" . }}-vst-nginx-config
+        - name: nginx-tmp
+          emptyDir: {}

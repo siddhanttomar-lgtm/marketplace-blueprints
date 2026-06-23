@@ -1,3 +1,0 @@
-ClickHouse is deploying. Access the HTTP interface on port 8123 and native TCP on port 9000.
-
-Username: {{ .Values.clickhouse.auth.username }}

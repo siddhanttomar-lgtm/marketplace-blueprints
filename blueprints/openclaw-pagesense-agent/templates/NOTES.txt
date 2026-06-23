@@ -1,0 +1,48 @@
+OpenClaw PageSense Analyst {{ .Chart.AppVersion }} deployed.
+
+⏳ First boot: 2-3 minutes
+   - PageSense MCP server connects to Zoho API (~30s)
+   - OpenClaw gateway initialises (~1-2 min)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS YOUR PAGESENSE ANALYST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw Control UI (primary — marketplace URL):
+  → Accessible at the URL shown in your E2E Marketplace dashboard
+  → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PREREQUISITES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Zoho PageSense account with tracking script installed on your website
+2. Zoho OAuth credentials (Client ID, Client Secret, Refresh Token)
+   → Create at: https://api-console.zoho.com/
+   → Required scopes: ZohoPageSense.reports.READ, ZohoPageSense.experiments.READ
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ASK YOUR PAGESENSE ANALYST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Open the Control UI and ask:
+  • "Summarise traffic this week"
+  • "Which campaign converted best this month?"
+  • "How are my experiments performing?"
+  • "Where are users dropping off in my checkout funnel?"
+  • "Which A/B test variant is winning and by how much?"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw not responding after 3 min:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
+
+PageSense MCP errors (auth failure or no data):
+  kubectl logs -l app.kubernetes.io/component=pagesense-mcp -n {{ .Release.Namespace }}
+  → Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN are correct
+  → Verify PageSense tracking script is installed on your website
+
+No experiment data:
+  → Ensure at least one A/B or split URL test has been created and activated in PageSense

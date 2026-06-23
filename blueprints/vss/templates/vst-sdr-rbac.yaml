@@ -1,0 +1,40 @@
+{{- if .Values.vst.sdr.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sdr
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sdr
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sdr
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sdr
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sdr
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sdr
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "vss.fullname" . }}-vst-sdr
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vss.fullname" . }}-vst-sdr
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -4,7 +4,7 @@
 
 ## Blueprint affected
 
-<!-- e.g. redis, keycloak, openclaw -->
+<!-- e.g. n8n, apisix, openclaw-devflow -->
 
 ## Checklist
 

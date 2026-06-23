@@ -25,6 +25,12 @@ jenkins:
   jenkinsUser: admin
   jenkinsPassword: ""
 
+  rbac:
+    create: false
+
+  agent:
+    enabled: false
+
   persistence:
     size: 10Gi
 
@@ -71,6 +77,14 @@ jenkins:
       prop.getEnvVars().put("PATH+MAVEN", "/opt/maven/bin")
       prop.getEnvVars().put("MAVEN_HOME", "/opt/maven")
       if (!existing) { gProps.add(prop) }
+      // Also register Maven as a Jenkins tool named 'maven3' so that
+      // `tools { maven 'maven3' }` pipelines work with zero manual setup.
+      def mavenDesc = instance.getDescriptorByType(hudson.tasks.Maven.DescriptorImpl.class)
+      if (!mavenDesc.installations.any { it.name == 'maven3' }) {
+        def inst = new hudson.tasks.Maven.MavenInstallation('maven3', '/opt/maven', [])
+        mavenDesc.setInstallations((mavenDesc.installations.toList() + inst) as hudson.tasks.Maven.MavenInstallation[])
+        mavenDesc.save()
+      }
       instance.save()
 
   # Init container: copies Maven binary from Alpine image (~150MB vs 627MB for full JDK21).

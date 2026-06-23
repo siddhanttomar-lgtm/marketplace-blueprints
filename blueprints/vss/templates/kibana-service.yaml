@@ -1,0 +1,18 @@
+{{- if .Values.kibana.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "vss.fullname" . }}-kibana
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kibana
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kibana
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.kibana.port }}
+      targetPort: {{ .Values.kibana.port }}
+{{- end }}

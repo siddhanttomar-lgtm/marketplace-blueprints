@@ -22,13 +22,6 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Ollama internal service host
-*/}}
-{{- define "open-webui.ollamaHost" -}}
-{{- printf "%s-ollama" .Release.Name }}
-{{- end }}
-
-{{/*
 Open WebUI service host
 */}}
 {{- define "open-webui.webuiHost" -}}
@@ -43,15 +36,6 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 app.kubernetes.io/name: {{ include "open-webui.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{/*
-Ollama selector labels
-*/}}
-{{- define "open-webui.ollamaSelectorLabels" -}}
-app.kubernetes.io/name: {{ include "open-webui.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/component: ollama
 {{- end }}
 
 {{/*

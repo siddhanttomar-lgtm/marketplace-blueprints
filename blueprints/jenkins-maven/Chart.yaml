@@ -1,5 +1,5 @@
 apiVersion: v2
-appVersion: "2.492"
+appVersion: 2.516.2
 dependencies:
 - name: jenkins
   repository: oci://registry-1.docker.io/bitnamicharts
@@ -8,4 +8,4 @@ description: Jenkins CI/CD with Apache Maven pre-installed. One-click deploy on 
   Marketplace.
 name: jenkins-maven
 type: application
-version: 1.0.5
+version: 1.0.7

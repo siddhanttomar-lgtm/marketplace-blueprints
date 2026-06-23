@@ -1,0 +1,8 @@
+apiVersion: v2
+appVersion: 1.0.0
+description: OpenClaw DevFlow — One AI agent that automates your software-delivery
+  workflow across GitHub, Slack, Notion, and Jira via optional MCP plugins. Assign
+  a task; it drafts a Notion TODO, opens a GitHub PR, and reports back on Slack.
+name: openclaw-devflow
+type: application
+version: 1.0.0

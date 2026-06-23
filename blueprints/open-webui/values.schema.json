@@ -1,11 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["model", "webui"],
+  "required": ["webui"],
   "properties": {
-    "model": {
-      "type": "string",
-      "description": "Ollama model to pull on deploy (e.g. llama3.2:3b, mistral:7b)"
+    "e2e": {
+      "type": "object",
+      "properties": {
+        "bearerToken": { "type": "string" },
+        "projectNamespace": { "type": "string" }
+      }
     },
     "webui": {
       "type": "object",
@@ -14,23 +17,6 @@
         "adminEmail": {
           "type": "string",
           "description": "Email address that becomes admin on first login"
-        },
-        "storage": {
-          "type": "object",
-          "properties": {
-            "size": { "type": "string" }
-          }
-        }
-      }
-    },
-    "ollama": {
-      "type": "object",
-      "properties": {
-        "gpu": {
-          "type": "object",
-          "properties": {
-            "enabled": { "type": "boolean" }
-          }
         },
         "storage": {
           "type": "object",

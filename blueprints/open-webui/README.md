@@ -1,18 +1,36 @@
-# Open WebUI with Ollama
+# AI Chat Workspace
 
-E2E's Kubernetes deployment of [Open WebUI](https://github.com/open-webui/open-webui) bundled with [Ollama](https://ollama.com) — a private, self-hosted LLM workspace. Chat with local language models without sending data to external APIs.
+E2E's Kubernetes deployment of [Open WebUI](https://github.com/open-webui/open-webui) bundled with [LiteLLM](https://github.com/BerriAI/litellm) and [Whisper](https://github.com/SYSTRAN/faster-whisper) — a private, self-hosted AI chat workspace. Connect your own API keys or use E2E TIR GenAI free models with no external account required.
 
 ## What You Get After Deployment
 
-The E2E Marketplace provisions Open WebUI with an embedded Ollama model server and shows the access URL in the dashboard.
-
-> **Note:** On first deployment, Ollama downloads the selected model weights (several GB). Full readiness takes 5–15 minutes. The UI will show a loading state until the model is ready.
+The E2E Marketplace provisions Open WebUI with LiteLLM as a unified API router and Whisper for speech-to-text, and shows the access URL in the dashboard.
 
 | Service | Port | Description |
 |---------|------|-------------|
 | Open WebUI | 8080 | Chat interface |
+| LiteLLM | 4000 | Internal API router (internal) |
+| Whisper STT | 8000 | Speech-to-text (internal) |
 
-Open `http://<deployment-url>:8080` in your browser and log in with the admin email and password you set.
+Open the URL from the marketplace and sign up with the admin email and password you configured.
+
+## AI Provider Options
+
+Connect at least one AI provider. You can choose either or both:
+
+**Option A — Bring your own API keys:**
+Set one or more of these in the deployment form:
+- OpenAI API Key
+- Anthropic API Key
+- Groq API Key
+- Google API Key (Gemini)
+- Fireworks API Key
+- Mistral API Key
+- Perplexity API Key
+
+**Option B — E2E TIR GenAI (free models, no external key needed):**
+Set `e2e.bearerToken` in the deployment form.
+Get your token at: E2E Console → TIR → API Tokens.
 
 ## Configuration
 
@@ -21,28 +39,36 @@ Fill in these values in the E2E Marketplace deployment form:
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `webui.adminEmail` | Yes | Admin account email address. |
-| `webui.adminPassword` | Yes | Admin account password. |
-| `model` | No | Default model to pull on first startup. Default: `qwen2.5:0.5b`. |
+| `webui.adminPassword` | Yes | Admin account password. Change from the default. |
+| `openaiApiKey` | No | OpenAI API key (sk-...). |
+| `anthropicApiKey` | No | Anthropic API key. |
+| `groqApiKey` | No | Groq API key. |
+| `googleApiKey` | No | Google Gemini API key. |
+| `fireworksApiKey` | No | Fireworks AI API key. |
+| `mistralApiKey` | No | Mistral API key. |
+| `perplexityApiKey` | No | Perplexity API key. |
+| `e2e.bearerToken` | No | E2E TIR bearer token for free hosted models. |
 | `webui.storage.size` | No | PVC size for chat history and settings. Default: `2Gi`. |
-| `ollama.storage.size` | No | PVC size for downloaded model weights. Default: `20Gi`. Increase for larger models. |
-| `ollama.gpu.enabled` | No | Enable GPU scheduling for Ollama. Default: `false`. |
-| `ollama.resources.requests.memory` | No | Memory for Ollama. Default: `2Gi`. Increase for models larger than 3B parameters. |
+| `whisper.model` | No | Whisper model size for speech-to-text. Default: `tiny`. |
 
 ## Ports
 
 | Port | Description |
 |------|-------------|
-| 8080 | Open WebUI web interface |
-| 11434 | Ollama API (internal) |
+| 8080 | Open WebUI chat interface |
+| 4000 | LiteLLM API router (internal) |
+| 8000 | Whisper STT API (internal) |
 
 ## Troubleshooting
 
-**Models not loading** — Ollama pulls the model on first use; this can take 5–15 minutes. Wait and refresh the page.
+**No models available after login** — add at least one API key or E2E TIR bearer token in Open WebUI → Settings → Connections.
 
-**Out of memory** — increase `ollama.resources.limits.memory`. Models over 3B parameters need more than the default 2Gi.
+**Admin login not working** — verify `webui.adminEmail` and `webui.adminPassword` match what was set during deployment.
 
-**GPU not detected** — ensure `ollama.gpu.enabled: true` and your cluster node has a GPU with the NVIDIA device plugin installed.
+**Speech-to-text not working** — Whisper uses the `tiny` model by default. For better accuracy, set `whisper.model` to `base` or `small` and ensure sufficient memory is available.
+
+**Pod not starting** — check `webui.adminEmail` is set; Open WebUI requires it on first boot.
 
 ## License
 
-Apache 2.0. Open WebUI is licensed under the [MIT License](https://github.com/open-webui/open-webui/blob/main/LICENSE).
+Apache 2.0. Open WebUI is licensed under the [MIT License](https://github.com/open-webui/open-webui/blob/main/LICENSE). LiteLLM is licensed under the [MIT License](https://github.com/BerriAI/litellm/blob/main/LICENSE).

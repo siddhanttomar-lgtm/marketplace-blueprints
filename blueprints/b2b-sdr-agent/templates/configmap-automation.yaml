@@ -203,40 +203,26 @@ data:
       return out;
     }
 
-    // ── Twenty CRM (best-effort REST mirror) ─────────────────────────────────
-    // Tracks lead.twentyId so repeated syncs PATCH the same person instead of
-    // creating duplicate CRM records on every state change. Mutates lead.twentyId;
-    // the caller persists it via saveState.
-    async function twentyUpsertPerson(lead) {
-      const url = process.env.TWENTY_API_URL, key = process.env.TWENTY_API_KEY;
-      if (!url || (key || '').length < 10) return null;
+    // ── HubSpot CRM (best-effort REST mirror) ────────────────────────────────
+    // Reads credentials from PVC per-call (no restart needed when token changes).
+    // Tracks lead.hubspotId so repeated syncs PATCH instead of creating duplicates.
+    async function hubspotUpsertContact(lead) {
+      let c = null;
+      try { c = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'hubspot-creds.json'), 'utf8')); } catch (e) { return null; }
+      if (!c || !c.accessToken || !lead.email) return null;
+      const base = (c.apiBase || 'https://api.hubapi.com').replace(/\/+$/, '');
+      const H = { authorization: 'Bearer ' + c.accessToken, 'content-type': 'application/json' };
+      const parts = (lead.name || '').trim().split(/\s+/);
+      const props = { email: lead.email, firstname: parts.shift() || '', lastname: parts.join(' ') };
+      if (lead.company) props.company = String(lead.company).slice(0, 100);
       try {
-        const parts = (lead.name || 'Unknown Lead').trim().split(/\s+/);
-        const firstName = parts.shift() || 'Unknown';
-        const lastName = parts.join(' ');
-        const body = { name: { firstName: firstName, lastName: lastName } };
-        if (lead.email) body.emails = { primaryEmail: lead.email };
-        if (lead.company) body.city = lead.company.slice(0, 60); // surfaced field; company object linkage is Phase 3
-
-        const existing = lead.twentyId;
-        const r = await fetch(url + '/rest/people' + (existing ? '/' + existing : ''), {
-          method: existing ? 'PATCH' : 'POST',
-          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + key },
-          body: JSON.stringify(body)
-        });
-        if (!r.ok) {
-          // A stale id (person deleted in Twenty) — drop it so the next sync recreates.
-          if (existing && (r.status === 404 || r.status === 400)) lead.twentyId = null;
-          log('twenty', 'sync HTTP ' + r.status + (existing ? ' (patch)' : ' (create)'));
-          return null;
-        }
+        let r = await fetch(base + '/crm/v3/objects/contacts', { method: 'POST', headers: H, body: JSON.stringify({ properties: props }) });
+        if (r.status === 409) r = await fetch(base + '/crm/v3/objects/contacts/' + encodeURIComponent(lead.email) + '?idProperty=email', { method: 'PATCH', headers: H, body: JSON.stringify({ properties: props }) });
+        if (!r.ok) { log('hubspot', 'sync HTTP ' + r.status); return null; }
         const j = await r.json();
-        const id = (j && j.data && j.data.id) || (j && j.id)
-          || (j && j.data && j.data.createPerson && j.data.createPerson.id)
-          || (j && j.data && j.data.updatePerson && j.data.updatePerson.id) || existing || null;
-        if (id) { lead.twentyId = id; log('twenty', 'person ' + (existing ? 'updated' : 'created') + ' id=' + id); }
-        return id;
-      } catch (e) { log('twenty', 'sync failed: ' + e.message); return null; }
+        if (j && j.id) { lead.hubspotId = j.id; log('hubspot', 'contact upserted id=' + j.id); }
+        return (j && j.id) || null;
+      } catch (e) { log('hubspot', 'sync failed: ' + e.message); return null; }
     }
 
     // ── Telegram approval notifications ──────────────────────────────────────
@@ -280,7 +266,7 @@ data:
       autoOutreach: autoOutreach, autoReply: autoReply, scoreThreshold: scoreThreshold, followUpDays: followUpDays,
       callLLM: callLLM, extractJson: extractJson,
       sendEmail: sendEmail, fetchUnseen: fetchUnseen,
-      twentyUpsertPerson: twentyUpsertPerson, telegramNotify: telegramNotify
+      hubspotUpsertContact: hubspotUpsertContact, telegramNotify: telegramNotify
     };
 
   reply-handler.js: |
@@ -393,7 +379,7 @@ data:
 
         if (cls.intent === 'unsubscribe' || cls.intent === 'not_interested') {
           lead.stage = 'closed-lost';
-          await L.twentyUpsertPerson(lead);
+          await L.hubspotUpsertContact(lead);
           continue;
         }
 
@@ -424,7 +410,7 @@ data:
         await L.telegramNotify('[APPROVAL NEEDED] Reply to ' + m.from + ' (intent: ' + cls.intent + ')\n\nSubject: ' + subject + '\n\n' + draft);
         lead.stage = 'awaiting-approval';
         lead.pendingDraft = { to: m.from, subject: subject, body: draft };
-        await L.twentyUpsertPerson(lead);
+        await L.hubspotUpsertContact(lead);
       }
       L.saveState(state);
     }
@@ -497,7 +483,7 @@ data:
             lead.history = lead.history || [];
             lead.history.push({ dir: 'out', at: lead.lastTouchAt, subject: subject, snippet: out.body.slice(0, 200) });
             L.log('followup', 'sent follow-up #' + (sentCount + 1) + ' to ' + lead.email);
-            await L.twentyUpsertPerson(lead);
+            await L.hubspotUpsertContact(lead);
           } catch (e) { L.log('followup', 'send failed for ' + lead.email + ': ' + e.message); }
         } else {
           await L.telegramNotify('[APPROVAL NEEDED] Follow-up #' + (sentCount + 1) + ' to ' + lead.email +
@@ -569,7 +555,7 @@ data:
           lead.stage = lead.stage || 'scored';
           scored++;
           L.log('enrich', (lead.email || lead.name) + ' scored ' + lead.score + ' (' + (sc.icp_fit || '?') + ')');
-          await L.twentyUpsertPerson(lead);
+          await L.hubspotUpsertContact(lead);
         }
 
         // ── First outreach (independent of whether scoring ran this pass, so leads
@@ -596,7 +582,7 @@ data:
             lead.history = lead.history || [];
             lead.history.push({ dir: 'out', at: lead.contactedAt, subject: subject, snippet: out.body.slice(0, 200) });
             L.log('enrich', 'first outreach sent to ' + lead.email);
-            await L.twentyUpsertPerson(lead);
+            await L.hubspotUpsertContact(lead);
           } catch (e) { L.log('enrich', 'outreach send failed: ' + e.message); }
         } else {
           await L.telegramNotify('[DRAFT — autoOutreach off] First outreach to ' + lead.email + ' (score ' + lead.score + ')' +
@@ -655,8 +641,8 @@ data:
         state.leads.push(lead);
       }
       L.saveState(state);
-      const id = await L.twentyUpsertPerson(lead);
-      L.log('crm-sync', 'lead registered: ' + (lead.email || lead.name) + ' score=' + lead.score + ' twentyId=' + (id || 'n/a'));
+      const id = await L.hubspotUpsertContact(lead);
+      L.log('crm-sync', 'lead registered: ' + (lead.email || lead.name) + ' score=' + lead.score + ' hubspotId=' + (id || 'n/a'));
     }
 
     const cmd = process.argv[2], arg = process.argv.slice(3).join(' ');
@@ -697,164 +683,14 @@ data:
       }
     }
 
-    // ── Twenty API key auto-init ──────────────────────────────────────────────
-    // Runs once at startup. Uses Twenty's GraphQL API at /metadata to:
-    //   1. signUp (first boot) → workspace-agnostic token  + signUpInNewWorkspace → workspace
-    //      OR signIn (subsequent) → workspace-agnostic token + existing workspace loginToken
-    //   2. getAuthTokensFromLoginToken → workspace-scoped access token
-    //   3. activateWorkspace → idempotent; seeds standard roles on first boot
-    //   4. getRoles → find the Admin role id
-    //   5. createApiKey → ApiKey metadata
-    //   6. generateApiKeyToken → final long-lived JWT for /rest/* calls
-    // Then sets process.env.TWENTY_API_KEY so the CRM-sync helpers in lib.js pick
-    // it up. Best-effort: if any step fails, loops run without CRM sync — they
-    // never crash because of this.
-    async function gql(url, query, token) {
-      const headers = { 'content-type': 'application/json' };
-      if (token) headers['authorization'] = 'Bearer ' + token;
-      try {
-        const r = await fetch(url + '/metadata', { method: 'POST', headers: headers, body: JSON.stringify({ query: query }) });
-        const j = await r.json();
-        if (j.errors && j.errors.length) {
-          return { error: j.errors.map(function (e) { return e.message; }).join('; '), data: null };
-        }
-        return { error: null, data: j.data };
-      } catch (e) {
-        return { error: e.message, data: null };
-      }
-    }
-
-    function jsonEscape(s) { return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
-
-    const fs = require('fs');
-    const path = require('path');
-    const TWENTY_KEY_FILE = path.join(process.env.STATE_DIR || '/home/node/.openclaw', 'twenty-api-key.txt');
-
-    async function isTwentyKeyValid(url, key) {
-      try {
-        const r = await fetch(url + '/rest/people?limit=1', { headers: { authorization: 'Bearer ' + key } });
-        return r.ok;
-      } catch (e) { return false; }
-    }
-
-    async function autoInitTwentyApiKey() {
-      const url = process.env.TWENTY_API_URL;
-      const email = process.env.TWENTY_ADMIN_EMAIL || 'admin@twenty.internal';
-      const password = process.env.TWENTY_ADMIN_PASSWORD;
-      if (!url || !password) { L.log('twenty-init', 'no admin credentials — CRM sync disabled'); return; }
-
-      // Wait up to 10 min for Twenty to become healthy (it runs migrations on first boot).
-      L.log('twenty-init', 'waiting for Twenty healthcheck...');
-      let healthy = false;
-      for (let i = 0; i < 60; i++) {
-        try { const r = await fetch(url + '/healthz'); if (r.ok) { healthy = true; break; } } catch (e) {}
-        await new Promise(function (r) { setTimeout(r, 10000); });
-      }
-      if (!healthy) { L.log('twenty-init', 'Twenty not ready after 10 min — CRM sync disabled'); return; }
-
-      // Try the persisted key first — saves the full 7-step auth flow on every restart.
-      try {
-        if (fs.existsSync(TWENTY_KEY_FILE)) {
-          const cached = fs.readFileSync(TWENTY_KEY_FILE, 'utf8').trim();
-          if (cached && await isTwentyKeyValid(url, cached)) {
-            process.env.TWENTY_API_KEY = cached;
-            L.log('twenty-init', 'restored API key from cache — CRM sync active');
-            return;
-          }
-          L.log('twenty-init', 'cached key invalid or revoked — regenerating');
-        }
-      } catch (e) { L.log('twenty-init', 'cache read failed: ' + e.message + ' — regenerating'); }
-
-      L.log('twenty-init', 'Twenty healthy — obtaining API key');
-
-      const eEsc = jsonEscape(email), pEsc = jsonEscape(password);
-
-      // Step 1: signIn first (idempotent — works on first boot AND subsequent). If
-      // the user doesn't exist yet, signIn returns an auth error → fall back to signUp.
-      let waToken = null, loginToken = null;
-      let r1 = await gql(url, 'mutation { signIn(email: "' + eEsc + '", password: "' + pEsc + '") { tokens { accessOrWorkspaceAgnosticToken { token } } availableWorkspaces { availableWorkspacesForSignIn { loginToken } } } }');
-      if (!r1.error && r1.data && r1.data.signIn) {
-        waToken = r1.data.signIn.tokens.accessOrWorkspaceAgnosticToken.token;
-        const ws = r1.data.signIn.availableWorkspaces.availableWorkspacesForSignIn;
-        if (ws && ws.length) loginToken = ws[0].loginToken;
-        L.log('twenty-init', 'signIn ok' + (loginToken ? ' (existing workspace)' : ' (no workspace yet)'));
-      } else {
-        const r1b = await gql(url, 'mutation { signUp(email: "' + eEsc + '", password: "' + pEsc + '") { tokens { accessOrWorkspaceAgnosticToken { token } } availableWorkspaces { availableWorkspacesForSignIn { loginToken } } } }');
-        if (r1b.error || !r1b.data || !r1b.data.signUp) {
-          L.log('twenty-init', 'auth failed: signIn=' + r1.error + ' / signUp=' + r1b.error + ' — CRM sync disabled');
-          return;
-        }
-        waToken = r1b.data.signUp.tokens.accessOrWorkspaceAgnosticToken.token;
-        const ws = r1b.data.signUp.availableWorkspaces.availableWorkspacesForSignIn;
-        if (ws && ws.length) loginToken = ws[0].loginToken;
-        L.log('twenty-init', 'signUp ok (first boot)');
-      }
-
-      // Step 2: if user has no workspace yet, create one.
-      if (!loginToken) {
-        const r2 = await gql(url, 'mutation { signUpInNewWorkspace { loginToken { token } workspace { id } } }', waToken);
-        if (r2.error || !r2.data || !r2.data.signUpInNewWorkspace) {
-          L.log('twenty-init', 'workspace creation failed: ' + r2.error + ' — CRM sync disabled');
-          return;
-        }
-        loginToken = r2.data.signUpInNewWorkspace.loginToken.token;
-        L.log('twenty-init', 'workspace created');
-      }
-
-      // Step 3: exchange loginToken for workspace-scoped access token.
-      const r3 = await gql(url, 'mutation { getAuthTokensFromLoginToken(loginToken: "' + jsonEscape(loginToken) + '", origin: "' + jsonEscape(url) + '") { tokens { accessOrWorkspaceAgnosticToken { token } } } }');
-      if (r3.error || !r3.data || !r3.data.getAuthTokensFromLoginToken) {
-        L.log('twenty-init', 'token exchange failed: ' + r3.error + ' — CRM sync disabled');
-        return;
-      }
-      const accessToken = r3.data.getAuthTokensFromLoginToken.tokens.accessOrWorkspaceAgnosticToken.token;
-
-      // Step 4: activate workspace (idempotent — seeds standard roles on first boot).
-      await gql(url, 'mutation { activateWorkspace(data: { displayName: "Sales Workspace" }) { id activationStatus } }', accessToken);
-
-      // Step 5: find the Admin role.
-      const r5 = await gql(url, '{ getRoles { id label } }', accessToken);
-      if (r5.error || !r5.data || !r5.data.getRoles || !r5.data.getRoles.length) {
-        L.log('twenty-init', 'no roles available: ' + r5.error + ' — CRM sync disabled');
-        return;
-      }
-      const adminRole = r5.data.getRoles.find(function (rl) { return rl.label === 'Admin'; }) || r5.data.getRoles[0];
-
-      // Step 6: createApiKey (returns metadata only).
-      const r6 = await gql(url, 'mutation { createApiKey(input: { name: "automation-key", expiresAt: "2099-12-31T00:00:00.000Z", roleId: "' + adminRole.id + '" }) { id } }', accessToken);
-      if (r6.error || !r6.data || !r6.data.createApiKey) {
-        L.log('twenty-init', 'createApiKey failed: ' + r6.error + ' — CRM sync disabled');
-        return;
-      }
-      const apiKeyId = r6.data.createApiKey.id;
-
-      // Step 7: generateApiKeyToken (returns the final long-lived JWT).
-      const r7 = await gql(url, 'mutation { generateApiKeyToken(apiKeyId: "' + apiKeyId + '", expiresAt: "2099-12-31T00:00:00.000Z") { token } }', accessToken);
-      const token = r7.data && r7.data.generateApiKeyToken && r7.data.generateApiKeyToken.token;
-      if (!token) {
-        L.log('twenty-init', 'generateApiKeyToken failed: ' + r7.error + ' — CRM sync disabled');
-        return;
-      }
-      process.env.TWENTY_API_KEY = token;
-      try {
-        fs.writeFileSync(TWENTY_KEY_FILE, token, { mode: 0o600 });
-        L.log('twenty-init', 'API key auto-generated and cached — CRM sync active');
-      } catch (e) {
-        L.log('twenty-init', 'API key auto-generated (cache write failed: ' + e.message + ') — CRM sync active');
-      }
-    }
-
     function start() {
       if (!ENABLED) { L.log('sched', 'outreach disabled (outreach.enabled=false) — sidecar idle'); setInterval(function () {}, 2147483647); return; }
       L.log('sched', 'autonomous scheduler started — reply poll every ' + POLL_MIN + ' min, daily enrichment+follow-up' +
         ' | autoOutreach=' + L.autoOutreach() + ' threshold=' + L.scoreThreshold() + ' cadence=[' + L.followUpDays().join(',') + ']');
-      // Auto-init Twenty API key, then start the scheduler loops.
-      autoInitTwentyApiKey().then(function () {
-        setTimeout(function () {
-          tick();
-          setInterval(tick, POLL_MIN * 60 * 1000);
-        }, 5000);
-      });
+      setTimeout(function () {
+        tick();
+        setInterval(tick, POLL_MIN * 60 * 1000);
+      }, 5000);
     }
 
     start();

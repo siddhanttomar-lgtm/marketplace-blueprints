@@ -59,11 +59,11 @@ Good references to study:
 
 | If your blueprint is... | Study this |
 |------------------------|-----------|
-| A database or cache | [`blueprints/redis`](blueprints/redis/) |
-| A web application | [`blueprints/n8n`](blueprints/n8n/) |
-| A multi-component AI stack | [`blueprints/openclaw`](blueprints/openclaw/) |
-| A developer tool | [`blueprints/gitea`](blueprints/gitea/) |
-| A monitoring stack | [`blueprints/prometheus`](blueprints/prometheus/) |
+| A web application / automation | [`blueprints/n8n`](blueprints/n8n/) |
+| An API gateway | [`blueprints/apisix`](blueprints/apisix/) |
+| A multi-component AI agent | [`blueprints/openclaw-personal-assistant`](blueprints/openclaw-personal-assistant/) |
+| A developer tool | [`blueprints/jenkins-maven`](blueprints/jenkins-maven/) |
+| A GPU / HPC workload | [`blueprints/vss`](blueprints/vss/) |
 
 **Step 4 — Run validation locally**
 

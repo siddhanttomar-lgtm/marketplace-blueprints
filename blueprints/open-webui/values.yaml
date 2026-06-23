@@ -1,11 +1,19 @@
 replicaCount: 1
 
-model: "qwen2.5:0.5b"
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR GenAI — user supplies bearer token; project namespace is platform-injected above.
+e2e:
+  projectNamespace: ""     # manual fallback; normally set via global.platform.tirProjectId
+  bearerToken: ""          # user's E2E TIR access token (deploy variable e2e.bearerToken)
 
 imagePullSecrets:
   - name: registry-pull-secret
 
-# External LLM API keys — leave empty to use only local Ollama
+# External LLM API keys — leave empty if not using that provider
 openaiApiKey: ""
 anthropicApiKey: ""
 groqApiKey: ""
@@ -14,40 +22,22 @@ fireworksApiKey: ""
 mistralApiKey: ""
 perplexityApiKey: ""
 
-ollama:
+litellm:
   image:
-    repository: registry.e2enetworks.net/marketplace-blueprint/ollama
-    tag: "0.6.5"
+    repository: registry.e2enetworks.net/marketplace-blueprint/litellm
+    tag: "v1.72.6"
     pullPolicy: IfNotPresent
-  storage:
-    size: 20Gi
-    storageClass: ""
-  gpu:
-    enabled: false
   resources:
     requests:
       cpu: 100m
-      memory: 2Gi
+      memory: 1Gi
     limits:
       cpu: "2"
       memory: 4Gi
 
-litellm:
-  image:
-    repository: ghcr.io/berriai/litellm
-    tag: "main-stable"
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 512Mi
-    limits:
-      cpu: "1"
-      memory: 2Gi
-
 webui:
   image:
-    repository: ghcr.io/open-webui/open-webui
+    repository: registry.e2enetworks.net/marketplace-blueprint/open-webui
     tag: "v0.9.5"
     pullPolicy: IfNotPresent
   adminEmail: ""

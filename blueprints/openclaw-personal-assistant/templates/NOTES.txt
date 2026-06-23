@@ -1,0 +1,10 @@
+OpenClaw Personal Assistant is deploying — powered by E2E Networks GenAI.
+
+Access the assistant at the URL provided by the platform.
+
+Authenticate with your gateway token:
+  Authorization: Bearer <your-gateway-token>
+
+On first visit: the assistant will prompt you for your E2E bearer token.
+Get yours at: E2E Console → GPU → API Tokens
+The token is stored securely in your deployment and never leaves your instance.

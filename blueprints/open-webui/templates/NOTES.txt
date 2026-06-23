@@ -1,37 +1,59 @@
-Open WebUI + Ollama {{ .Chart.AppVersion }} deployed.
+AI Chat Workspace {{ .Chart.AppVersion }} deployed.
 
-⏳ First boot: 3-5 minutes (downloading {{ .Values.model }} — ~2-5 GB depending on model)
+⏳ First boot: 2-3 minutes (LiteLLM startup + WebUI initialization)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Get Open WebUI URL:
+Open WebUI is accessible at the URL shown in your E2E Marketplace dashboard.
 
-  NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
-  NODE_PORT=$(kubectl get svc {{ .Release.Name }}-open-webui -o jsonpath='{.spec.ports[0].nodePort}')
-  echo "Open WebUI: http://$NODE_IP:$NODE_PORT"
+First login: sign up with {{ .Values.webui.adminEmail }} — this account becomes admin automatically.
 
-First login: Sign up with {{ .Values.webui.adminEmail }} — this account becomes admin automatically.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODELS — KEYS IN, MODELS APPEAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Each provider's models light up only when its key is set. No key → no models from that provider.
 
-Change model:
+{{- if .Values.e2e.bearerToken }}
 
-  helm upgrade {{ .Release.Name }} ./open-webui-chart \
-    --reuse-values \
-    --set model=mistral:7b
+  ✓ E2E TIR token detected — 3 free models active:
+      gpt_oss_120b  (GPT OSS 120B)
+      qwen3_32b     (Qwen3 32B)
+      llama3_1_8b_instruct (Llama 3.1 8B)
+{{- else }}
 
-Available models: llama3.2:3b, llama3.1:8b, mistral:7b, gemma:2b, phi3:3.8b
-Storage required: 2GB (3b) → 5GB (8b) → 40GB (70b)
+  E2E TIR GenAI (free):
+    Set e2e.bearerToken in deployment variables to activate 3 free text-to-text models.
+    Obtain your token from the E2E TIR console.
+{{- end }}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Optional cloud providers (set any key to unlock):
+    openaiApiKey      → gpt-4o, gpt-4o-mini
+    anthropicApiKey   → claude-3-5-sonnet, claude-3-haiku
+    groqApiKey        → groq-llama3-70b, groq-llama3-8b
+    googleApiKey      → gemini-2.0-flash, gemini-1.5-pro
+    fireworksApiKey   → fw-deepseek-v4-pro, fw-kimi-k2, fw-gpt-oss-120b
+    mistralApiKey     → mistral-large, mistral-small
+    perplexityApiKey  → perplexity-sonar-pro, perplexity-sonar
 
-Troubleshooting:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SPEECH-TO-TEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Model pull not started?
-    kubectl logs job/{{ .Release.Name }}-model-pull -n {{ .Release.Namespace }}
+Whisper STT is running locally — use the microphone icon in any chat.
+Model: {{ .Values.whisper.model }}
 
-  Ollama not ready?
-    kubectl logs -l app.kubernetes.io/component=ollama -n {{ .Release.Namespace }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  WebUI can't connect to Ollama?
-    kubectl logs -l app.kubernetes.io/component=webui -n {{ .Release.Namespace }}
+No models showing after login?
+  → Keys may not be set. Check deployment variables and redeploy.
+
+LiteLLM not ready?
+  kubectl logs -l app.kubernetes.io/component=litellm -n {{ .Release.Namespace }}
+
+WebUI not loading?
+  kubectl logs -l app.kubernetes.io/component=webui -n {{ .Release.Namespace }}

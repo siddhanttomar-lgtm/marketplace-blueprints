@@ -46,7 +46,7 @@ git checkout -b blueprint/myapp
 
 ## Step 2 — Create the Blueprint Folder
 
-Every blueprint lives under `blueprints/{name}/` where `{name}` is lowercase and hyphen-separated (e.g. `redis`, `apache-kafka`, `my-app`).
+Every blueprint lives under `blueprints/{name}/` where `{name}` is lowercase and hyphen-separated (e.g. `n8n`, `apisix`, `my-app`).
 
 **Use the scaffolding script to create the folder skeleton automatically:**
 
@@ -56,10 +56,10 @@ bash scripts/create-blueprint.sh <name> "<Display Name>" "<description>" "<appVe
 
 Example:
 ```bash
-bash scripts/create-blueprint.sh mysql "MySQL" "MySQL relational database" "8.4.0"
+bash scripts/create-blueprint.sh my-tool "My Tool" "Brief description of my tool" "1.0.0"
 ```
 
-This creates `blueprints/mysql/` with all required files pre-filled. Then edit the `TODO` placeholders and continue with the steps below.
+This creates `blueprints/my-tool/` with all required files pre-filled. Then edit the `TODO` placeholders and continue with the steps below.
 
 **Required structure:**
 
@@ -88,7 +88,7 @@ appVersion: "2.5.0"     # the actual upstream software version
 ```
 
 - `version` is the Helm chart version. Bump it when you change the chart.
-- `appVersion` is the version of the software inside the chart (e.g. `"7.4.1"` for Redis 7.4.1).
+- `appVersion` is the version of the software inside the chart (e.g. `"1.122.4"` for n8n 1.122.4).
 
 **2.2 values.example.yaml rules**
 
@@ -254,8 +254,8 @@ After your PR is merged into `main`, create a release tag. Use the format `{name
 ```bash
 git checkout main
 git pull upstream main
-git tag redis-v1.0.0
-git push upstream redis-v1.0.0
+git tag n8n-v2.0.8
+git push upstream n8n-v2.0.8
 ```
 
 This triggers the release workflow which:
@@ -276,7 +276,7 @@ helm search repo e2enetworks/{name}
 
 The process is the same — fork, branch, change, validate, PR — except:
 
-- Use branch format `fix/{name}-{short-description}` (e.g. `fix/redis-persistence-default`)
+- Use branch format `fix/{name}-{short-description}` (e.g. `fix/n8n-persistence-default`)
 - Bump `version` in `Chart.yaml` for any chart change (even docs-only fixes)
 - Do not change `appVersion` unless you are updating to a new upstream software release
 

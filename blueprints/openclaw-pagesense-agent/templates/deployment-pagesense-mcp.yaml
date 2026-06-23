@@ -1,0 +1,88 @@
+{{- /* The pagesense-mcp server image FATALs without Zoho creds. Only deploy it when
+       all three are provided; otherwise the agent runs without PageSense tools. */}}
+{{- if and .Values.zoho.clientId .Values.zoho.clientSecret .Values.zoho.refreshToken }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-pagesense-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pagesense-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "pagesense-mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "pagesense-mcp") | nindent 8 }}
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pagesense-mcp
+          image: "{{ .Values.pagesenseMcp.image.repository }}:{{ .Values.pagesenseMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.pagesenseMcp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3334
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3334"
+            - name: ZOHO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: ZOHO_CLIENT_ID
+            - name: ZOHO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: ZOHO_CLIENT_SECRET
+            - name: ZOHO_REFRESH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: ZOHO_REFRESH_TOKEN
+            - name: ZOHO_REGION
+              value: {{ .Values.zoho.region | trim | quote }}
+            # Pre-computed full domain URLs so the binary uses the correct Zoho DC
+            # regardless of whether it reads ZOHO_REGION itself.
+            - name: ZOHO_ACCOUNTS_URL
+              value: {{ printf "https://accounts.zoho.%s" (.Values.zoho.region | trim) | quote }}
+            - name: ZOHO_PAGESENSE_BASE_URL
+              value: {{ printf "https://pagesense.zoho.%s" (.Values.zoho.region | trim) | quote }}
+            - name: ZOHO_PORTAL_NAME
+              value: {{ .Values.zoho.portalName | trim | quote }}
+            - name: ZOHO_PROJECT_LINK_NAME
+              value: {{ .Values.zoho.projectLinkName | trim | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3334
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3334
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.pagesenseMcp.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+{{- end }}

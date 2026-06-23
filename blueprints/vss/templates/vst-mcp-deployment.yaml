@@ -1,0 +1,50 @@
+{{- if .Values.vst.mcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-mcp
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vst-mcp
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vst-mcp
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vst-mcp
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "vss.fullname" . }}-nvcr-pull
+      containers:
+        - name: vst-mcp
+          image: {{ .Values.vst.mcp.image }}
+          env:
+            - name: MCP_GATEWAY_CPP_API_BASE_URL
+              value: "http://{{ include "vss.fullname" . }}-vst-ingress:{{ .Values.vst.ingress.port }}/vst"
+            - name: MCP_GATEWAY_CPP_API_TIMEOUT
+              value: "30"
+            - name: MCP_GATEWAY_SERVER_NAME
+              value: vst-mcp-server
+            - name: MCP_GATEWAY_SERVER_VERSION
+              value: "1.0.0"
+            - name: MCP_GATEWAY_SERVER_HOST
+              value: "0.0.0.0"
+            - name: MCP_GATEWAY_SERVER_PORT
+              value: {{ .Values.vst.mcp.port | quote }}
+            - name: MCP_GATEWAY_LOG_LEVEL
+              value: INFO
+            - name: MCP_GATEWAY_ENABLE_JSONRPC_LOGGING
+              value: "true"
+          ports:
+            - containerPort: {{ .Values.vst.mcp.port }}
+              name: http
+          resources:
+            {{- toYaml .Values.vst.mcp.resources | nindent 12 }}
+{{- end }}
