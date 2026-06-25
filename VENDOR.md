@@ -1,6 +1,6 @@
 # Vendor Guide — E2E Cloud Marketplace
 
-The E2E Cloud Marketplace lets end users deploy production-ready software on Kubernetes with a single click. This guide is for vendors and open-source maintainers who want to **propose a new blueprint** or **contribute one directly**. You do not need to be an E2E employee — anyone can open a request or submit a pull request. All blueprints are reviewed by the E2E platform team before going live.
+The E2E Cloud Marketplace lets end users deploy production-ready software with a single click. This guide is for vendors and open-source maintainers who want to **propose a new blueprint** or **contribute one directly**. Vendor can open a request or submit a pull request. All blueprints are reviewed by the E2E platform team before going live.
 
 ---
 
@@ -8,16 +8,14 @@ The E2E Cloud Marketplace lets end users deploy production-ready software on Kub
 
 ### Container
 
-* Containerized applications deployed to Kubernetes clusters
 * Lightweight, portable application packages with all dependencies included
-* Developers have full control over container lifecycle and scaling
+* Full control over container lifecycle and scaling
 * Best for cloud-native applications, microservices, and GPU-accelerated AI/ML workloads
 
 ### Blueprint
 
 * Multi-component solutions combining containers, networking, and storage
-* One-click deployment of complete, production-ready application stacks
-* Orchestrated deployment across multiple infrastructure components
+* One-click deployment of complete, AI ready application stacks
 * Best for full-stack solutions, AI pipelines, analytics platforms, and enterprise use cases
 
 We actively prioritise blueprints in the following areas:
@@ -25,7 +23,6 @@ We actively prioritise blueprints in the following areas:
 * **AI / ML** — LLM gateways, RAG pipelines, vector databases, model serving, AI agents
 * **SaaS & Productivity** — collaboration tools, CMS platforms, project management
 * **Security** — identity providers, secret management, API gateways
-* **Analytics & Observability** — dashboards, metrics, log aggregation
 * **Enterprise infrastructure** — databases, message queues, caching, CI/CD
 
 ---
@@ -107,7 +104,7 @@ If you want E2E to build and maintain a blueprint (rather than contributing it y
 ## Overview
 
 **Product name:**
-<!-- The exact name as it should appear in the marketplace. E.g. "Apache Kafka", "Qdrant", "Metabase" -->
+<!-- The exact name as it should appear in the marketplace. E.g. "Apache APISIX", "AI Chat Workspace" -->
 
 **Type:**
 <!-- Choose one: Container / Blueprint -->
@@ -185,12 +182,12 @@ The E2E platform team reviews every submission for security, resource sizing, an
 | Stage | What happens |
 |-------|-------------|
 | **Submission** | Issue opened or PR created |
-| **Initial review** | E2E team checks completeness within 5 business days |
-| **Build & test** | E2E builds the chart, deploys to staging cluster, verifies it works |
+| **Initial review** | E2E team checks completeness within 2 business days |
+| **Build & test** | E2E builds the chart, and verifies it |
 | **Security review** | Images, default credentials, and RBAC are reviewed |
 | **Live** | Blueprint published to the marketplace |
 
-We will comment on your issue or PR with status updates throughout.
+We will comment on your issue or PR with status updates.
 
 ---
 
