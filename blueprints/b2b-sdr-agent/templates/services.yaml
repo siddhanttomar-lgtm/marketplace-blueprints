@@ -1,0 +1,37 @@
+{{/* Primary service — name matches release name so platform ingress routes here */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "b2b-sdr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 4 }}
+  ports:
+    - name: gateway
+      port: 18789
+      targetPort: 18789
+      protocol: TCP
+---
+{{/* OpenClaw — NodePort, primary ingress for marketplace platform */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-openclaw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "b2b-sdr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  type: NodePort
+  selector:
+    {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 4 }}
+  ports:
+    - name: gateway
+      port: 18789
+      targetPort: 18789
+      protocol: TCP

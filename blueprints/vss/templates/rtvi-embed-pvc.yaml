@@ -1,0 +1,31 @@
+{{- if .Values.rtviEmbed.enabled }}
+# ── HuggingFace model cache (~10GB Cosmos-Embed1-448p model) ─────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-hf-cache
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-embed
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.rtviEmbed.storage.hfCacheSize }}
+---
+# ── NGC model cache (compiled Triton model repo) ──────────────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-ngc-model-cache
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-embed
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.rtviEmbed.storage.ngcCacheSize }}
+{{- end }}

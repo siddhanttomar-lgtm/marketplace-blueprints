@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-webui-scripts
+  labels:
+    {{- include "open-webui.labels" . | nindent 4 }}
+data:
+  prestart.py: |
+    import glob, os, re
+
+    FILES = [
+        "/app/backend/open_webui/utils/middleware.py",
+        "/app/backend/open_webui/main.py",
+        "/app/backend/open_webui/socket/main.py",
+    ]
+    for p in FILES:
+        with open(p) as f: c = f.read()
+        # Fix: metadata.get('chat_id').startswith( and metadata.get('chat_id','').startswith(
+        patched = re.sub(
+            r"metadata\.get\(\s*'chat_id'\s*(?:,\s*'')?\s*\)\.startswith\(",
+            "(metadata.get('chat_id') or '').startswith(",
+            c
+        )
+        # Fix: metadata['chat_id'].startswith(
+        patched = patched.replace(
+            "metadata['chat_id'].startswith(",
+            "(metadata.get('chat_id') or '').startswith("
+        )
+        # Fix: request_info.get('chat_id', '').startswith( — in socket/main.py
+        patched = re.sub(
+            r"request_info\.get\(\s*'chat_id'\s*,\s*''\s*\)\.startswith\(",
+            "(request_info.get('chat_id') or '').startswith(",
+            patched
+        )
+        if patched != c:
+            with open(p, "w") as f: f.write(patched)
+            print(f"Patched: {p}")
+        else:
+            print(f"No change needed: {p}")
+
+    for pyc in glob.glob("/app/backend/**/*.pyc", recursive=True):
+        try: os.remove(pyc)
+        except: pass
+    print("Prestart done")
+
+  make_models_public.py: |
+    import time, os, sys, sqlite3, uuid
+    try:
+        import requests
+    except ImportError:
+        sys.exit(0)
+
+    BASE = "http://localhost:8080"
+    EMAIL = os.environ.get("WEBUI_ADMIN_EMAIL", "")
+    PASSWORD = os.environ.get("WEBUI_ADMIN_PASSWORD", "")
+    DB_PATH = "/app/backend/data/webui.db"
+
+    # Wait up to 10 minutes for WebUI to be ready
+    for _ in range(120):
+        try:
+            if requests.get(f"{BASE}/health", timeout=3).status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(5)
+
+    try:
+        r = requests.post(
+            f"{BASE}/api/v1/auths/signin",
+            json={"email": EMAIL, "password": PASSWORD},
+            timeout=10
+        )
+        token = r.json().get("token")
+        if not token:
+            sys.exit(0)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        models = requests.get(f"{BASE}/api/models", headers=headers, timeout=10).json().get("data", [])
+        model_ids = [m.get("id") for m in models if m.get("id") and m.get("id") != "arena-model"]
+
+        # Direct SQLite: insert model rows (base_model_id=NULL for override path)
+        # and access_grant rows (principal_id='*' = public read for all users)
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM user WHERE role='admin' LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            sys.exit(0)
+        admin_id = row[0]
+        now_ms = int(time.time() * 1000)
+
+        for mid in model_ids:
+            name = next((m.get("name", mid) for m in models if m.get("id") == mid), mid)
+            # base_model_id=NULL so Open WebUI uses the override path and sets model['info']
+            cur.execute(
+                "INSERT OR IGNORE INTO model (id, user_id, base_model_id, name, params, meta, is_active, created_at, updated_at) "
+                "VALUES (?, ?, NULL, ?, '{}', '{}', 1, ?, ?)",
+                (mid, admin_id, name, now_ms, now_ms)
+            )
+            # Wildcard read grant — all authenticated users can see this model
+            cur.execute(
+                "INSERT OR IGNORE INTO access_grant (id, resource_type, resource_id, principal_type, principal_id, permission, created_at) "
+                "VALUES (?, 'model', ?, 'user', '*', 'read', ?)",
+                (str(uuid.uuid4()), mid, now_ms)
+            )
+            print(f"Made public: {mid}")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"make_models_public error: {e}")

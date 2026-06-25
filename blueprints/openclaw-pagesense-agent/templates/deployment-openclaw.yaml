@@ -1,0 +1,399 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-openclaw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aaa.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  replicas: 1
+  # Recreate is MANDATORY — RollingUpdate holds the ReadWriteOnce PVC and hangs the new pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "aaa.selectorLabels" (dict "Release" .Release "Chart" .Chart "Values" .Values "component" "openclaw") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Fix PVC root ownership so uid 1000 (gateway) can chmod it.
+        # OpenClaw's exec tool calls chmod(OPENCLAW_CONFIG_DIR) on every exec — fails with EPERM
+        # when the directory is root-owned (default PVC mount ownership).
+        - name: fix-permissions
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c", "chown -R 1000:1000 /home/node/.openclaw && chmod 755 /home/node/.openclaw && echo '[fix-permissions] done'"]
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+
+        # Copy config files, set active model, inject channels and credentials.
+        - name: init-config
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              mkdir -p /home/node/.openclaw/workspace/skills/pagesense
+              cp /config/SKILL.md /home/node/.openclaw/workspace/skills/pagesense/SKILL.md
+              for f in IDENTITY.md SOUL.md TOOLS.md BOOTSTRAP.md HEARTBEAT.md AGENTS.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              [ -f /home/node/.openclaw/workspace/MEMORY.md ] || cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              [ -f /home/node/.openclaw/workspace/USER.md ] || cp /config/USER.md /home/node/.openclaw/workspace/USER.md
+              echo "[init-config] Config files copied."
+
+              # Pre-load E2E bearer token from secret if provided (speeds up first boot).
+              if [ ${#E2E_BEARER_TOKEN} -gt 10 ]; then
+                mkdir -p /home/node/.openclaw
+                printf '{"token":"%s","savedAt":"pre-loaded"}' "${E2E_BEARER_TOKEN}" > /home/node/.openclaw/e2e-token.json
+                echo "[init-config] E2E bearer token pre-loaded from secret."
+              fi
+
+              # Set e2e as the active model provider.
+              HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                node /app/dist/index.js models set "e2e/gpt_oss_120b" 2>/dev/null || true
+              echo "[init-config] Default model: e2e/gpt_oss_120b"
+
+              # Install nodemailer to PVC + write send-email.js if Gmail credentials provided.
+              if [ ${#GMAIL_USER} -gt 3 ] && [ ${#GMAIL_APP_PASSWORD} -gt 10 ]; then
+                if [ ! -d "/home/node/.openclaw/npm-email/node_modules/nodemailer" ]; then
+                  npm install --prefix /home/node/.openclaw/npm-email nodemailer 2>/dev/null || true
+                fi
+                node -e "
+                  const fs = require('fs');
+                  const script = [
+                    \"#!/usr/bin/env node\",
+                    \"'use strict';\",
+                    \"const nodemailer = require('/home/node/.openclaw/npm-email/node_modules/nodemailer');\",
+                    \"const [,,to,subject,...bodyParts] = process.argv;\",
+                    \"if (!to||!subject){console.error('Usage: send-email.js <to> <subject> <body>');process.exit(1);}\",
+                    \"const body = bodyParts.join(' ');\",
+                    \"const user=process.env.GMAIL_USER, pass=process.env.GMAIL_APP_PASSWORD;\",
+                    \"if(!user||!pass){console.error('GMAIL_USER/GMAIL_APP_PASSWORD not set');process.exit(1);}\",
+                    \"const t=nodemailer.createTransport({host:'smtp.gmail.com',port:587,secure:false,auth:{user,pass}});\",
+                    \"t.sendMail({from:user,to,subject,text:body})\",
+                    \".then(i=>console.log('Email sent to '+to+' ('+i.messageId+')'))\",
+                    \".catch(e=>{console.error('Send failed: '+e.message);process.exit(1);});\",
+                  ].join('\n');
+                  fs.writeFileSync('/home/node/.openclaw/workspace/send-email.js', script);
+                " 2>/dev/null || true
+                echo "[init-config] Gmail email configured for ${GMAIL_USER}"
+              fi
+
+              # Telegram — secure by default (mirrors AI PM / OpenClaw Workspace Assistant model).
+              # token + no allowed IDs → pairing mode (unknown DMs held for approval, never open).
+              if printf '%s' "$TELEGRAM_BOT_TOKEN" | grep -qE '^[0-9]{6,}:[A-Za-z0-9_-]{30,}$'; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                  c.channels = { telegram: {
+                    enabled: true,
+                    dmPolicy: 'pairing',
+                    allowFrom: [],
+                    botToken: process.env.TELEGRAM_BOT_TOKEN
+                  } };
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                " 2>/dev/null || true
+                echo "[init-config] Telegram: pairing mode (unknown DMs held for approval)."
+              fi
+
+              # Disable vector memory search — avoids embedding provider errors when no
+              # compatible API key is set. Lexical FTS still works.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/openclaw.json';
+                const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                if (!c.agents) c.agents = {};
+                if (!c.agents.defaults) c.agents.defaults = {};
+                c.agents.defaults.memorySearch = { enabled: false };
+                fs.writeFileSync(p, JSON.stringify(c,null,2));
+                console.error('[init-config] memorySearch disabled.');
+              " 2>&1 || true
+
+              # Pre-approve exec calls so the pagesense agent can run scripts without prompting.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/exec-approvals.json';
+                if (!fs.existsSync(p)) {
+                  const data = {
+                    version: 1,
+                    agents: {
+                      pagesense: {
+                        allowlist: [
+                          'node /home/node/.openclaw/workspace/*.js *'
+                        ]
+                      }
+                    },
+                    allowlist: []
+                  };
+                  fs.writeFileSync(p, JSON.stringify(data, null, 2));
+                  console.error('[init-config] exec-approvals.json created for pagesense agent.');
+                }
+              " 2>&1 || true
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+      containers:
+        # ─── OpenClaw Gateway ────────────────────────────────────────────────
+        - name: gateway
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: NODE_ENV
+              value: production
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.openclaw.resources | nindent 12 }}
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── Ingress WebSocket Patcher ────────────────────────────────────────
+        # Patches the platform-created ingress with HAProxy WebSocket timeout annotation.
+        - name: ingress-patcher
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command:
+            - node
+            - -e
+            - |
+              'use strict';
+              const https = require('https');
+              const fs   = require('fs');
+              const token   = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+              const ns      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+              const ca      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+              const ingress = 'ingress-{{ .Release.Name }}';
+              const base    = '/apis/networking.k8s.io/v1/namespaces/' + ns + '/ingresses/' + ingress;
+              const patch   = JSON.stringify({ metadata: { annotations: {
+                'haproxy-ingress.github.io/timeout-tunnel':        '1h',
+                'haproxy-ingress.github.io/health-check-interval': '0'
+              }}});
+              function apiCall(method, path, body) {
+                return new Promise(resolve => {
+                  const opts = { hostname: 'kubernetes.default.svc', path, method, ca,
+                    headers: { Authorization: 'Bearer ' + token } };
+                  if (body) { opts.headers['Content-Type'] = 'application/merge-patch+json';
+                    opts.headers['Content-Length'] = Buffer.byteLength(body); }
+                  const req = https.request(opts, res => { resolve(res.statusCode); res.resume(); });
+                  req.on('error', () => resolve(0));
+                  if (body) req.write(body);
+                  req.end();
+                });
+              }
+              async function run() {
+                for (let i = 0; i < 24; i++) {
+                  const status = await apiCall('GET', base, null);
+                  if (status === 200) {
+                    const patched = await apiCall('PATCH', base, patch);
+                    console.log('[ingress-patcher] patched ' + ingress + ' -> HTTP ' + patched);
+                    return;
+                  }
+                  console.log('[ingress-patcher] waiting for ingress (' + (i+1) + '/24)...');
+                  await new Promise(r => setTimeout(r, 5000));
+                }
+                console.log('[ingress-patcher] ingress not found after 120s — skipping');
+              }
+              run().catch(e => console.error('[ingress-patcher]', e))
+                   .finally(() => setInterval(() => {}, 2147483647));
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── E2E TIR Proxy ────────────────────────────────────────────────────
+        - name: e2e-setup-proxy
+          image: "{{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}"
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/config/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openclaw-home
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-openclaw-config
+        - name: tmp-volume
+          emptyDir: {}

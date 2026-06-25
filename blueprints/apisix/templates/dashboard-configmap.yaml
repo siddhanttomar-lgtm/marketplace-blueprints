@@ -1,0 +1,35 @@
+# Dashboard config — uses localhost etcd (all containers share Pod network)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dashboard-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  conf.yaml: |
+    conf:
+      listen:
+        host: 0.0.0.0
+        port: 9001
+      allow_list:
+        - 0.0.0.0/0
+      etcd:
+        endpoints:
+          - 127.0.0.1:2379
+        prefix: "/apisix"
+        timeout: 30
+      log:
+        error_log:
+          level: warn
+          file_path: /tmp/error.log
+        access_log:
+          file_path: /tmp/access.log
+    authentication:
+      secret: apisix-dashboard-secret
+      expire_time: 3600
+      users:
+        - username: {{ .Values.dashboard.adminUsername | quote }}
+          password: {{ .Values.dashboard.adminPassword | quote }}

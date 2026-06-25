@@ -1,0 +1,52 @@
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR — manual override fallback for deploys outside the platform.
+e2e:
+  projectNamespace: ""
+  modelName: "gpt_oss_120b"
+
+openclaw:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
+    tag: "slim"
+    pullPolicy: IfNotPresent
+  storage:
+    size: "5Gi"
+  # REQUIRED: Gateway auth token — change before production
+  gatewayToken: "Assistant@12345"
+  # Google OAuth credentials — obtain once via Google OAuth Playground
+  # See user guide: https://developers.google.com/oauthplayground
+  googleClientId: ""
+  googleClientSecret: ""
+  googleRefreshToken: ""
+  gmailAddress: ""
+  gmailSendName: "Assistant"
+  # Google Translate API key — separate from OAuth, get at console.cloud.google.com
+  # Enable "Cloud Translation API" and create an API key
+  googleTranslateKey: ""
+  # E2E Networks bearer token for TIR GenAI access
+  e2eBearerToken: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+telegram:
+  # Optional — if set, enables a Telegram bot bridged to the assistant.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  # Access is pairing-only and secure by default: anyone who DMs the bot is HELD pending
+  # approval. You approve them from the Control UI by asking the agent to approve the
+  # pending request (it uses the built-in telegram-pairing tool). The bot is never left
+  # open, so it can't bypass the gateway-token gate.
+  botToken: ""
+
+persistence:
+  accessMode: ReadWriteOnce
+
+nodeSelector: {}

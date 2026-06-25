@@ -1,0 +1,748 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-openclaw
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "b2b-sdr.labels" . | nindent 4 }}
+    app.kubernetes.io/component: openclaw
+spec:
+  replicas: 1
+  # Recreate is MANDATORY — RollingUpdate holds the ReadWriteOnce PVC and hangs the new pod.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/credentials: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "b2b-sdr.selectorLabels" (dict "release" .Release.Name "component" "openclaw") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-ingress-patcher
+      imagePullSecrets:
+        - name: registry-pull-secret
+      securityContext:
+        fsGroup: 1000
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Fix PVC root ownership so uid 1000 (gateway) can chmod it.
+        # OpenClaw's exec tool calls chmod(OPENCLAW_CONFIG_DIR) on every exec — fails with EPERM
+        # when the directory is root-owned (default PVC mount ownership).
+        - name: fix-permissions
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c", "chown -R 1000:1000 /home/node/.openclaw && chmod 755 /home/node/.openclaw && echo '[fix-permissions] done'"]
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+
+        # Copy config files, set active model, inject channels.telegram + baseUrl if provided.
+        - name: init-config
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              mkdir -p /home/node/.openclaw/workspace
+              cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
+              cp /config/SOUL.md /home/node/.openclaw/workspace/SOUL.md
+              cp /config/BOOTSTRAP.md /home/node/.openclaw/workspace/BOOTSTRAP.md
+              # Telegram pairing-approval MCP helper — the gateway spawns it from the PVC.
+              cp /config/tg-pairing-mcp.js /home/node/.openclaw/tg-pairing-mcp.js
+              echo "[init-config] Config files copied."
+
+              # Pre-load E2E bearer token from secret if provided (speeds up first boot).
+              if [ ${#E2E_BEARER_TOKEN} -gt 10 ]; then
+                mkdir -p /home/node/.openclaw
+                printf '{"token":"%s","savedAt":"pre-loaded"}' "${E2E_BEARER_TOKEN}" > /home/node/.openclaw/e2e-token.json
+                echo "[init-config] E2E bearer token pre-loaded from secret."
+              fi
+
+              # Set e2e as the active model provider.
+              HOME=/home/node OPENCLAW_CONFIG_DIR=/home/node/.openclaw \
+                node /app/dist/index.js models set "e2e/gpt_oss_120b" 2>/dev/null || true
+              echo "[init-config] Default model: e2e/gpt_oss_120b"
+
+              # Install nodemailer to PVC + write send-email.js if Gmail credentials provided.
+              if [ ${#GMAIL_USER} -gt 3 ] && [ ${#GMAIL_APP_PASSWORD} -gt 10 ]; then
+                # Install nodemailer to PVC (persists across restarts, skips if already installed)
+                if [ ! -d "/home/node/.openclaw/npm-email/node_modules/nodemailer" ]; then
+                  npm install --prefix /home/node/.openclaw/npm-email nodemailer 2>/dev/null || true
+                fi
+                # Write send-email.js helper to workspace
+                node -e "
+                  const fs = require('fs');
+                  const script = [
+                    \"#!/usr/bin/env node\",
+                    \"'use strict';\",
+                    \"const nodemailer = require('/home/node/.openclaw/npm-email/node_modules/nodemailer');\",
+                    \"const [,,to,subject,...bodyParts] = process.argv;\",
+                    \"if (!to||!subject){console.error('Usage: send-email.js <to> <subject> <body>');process.exit(1);}\",
+                    \"const body = bodyParts.join(' ');\",
+                    \"const user=process.env.GMAIL_USER, pass=process.env.GMAIL_APP_PASSWORD;\",
+                    \"if(!user||!pass){console.error('GMAIL_USER/GMAIL_APP_PASSWORD not set');process.exit(1);}\",
+                    \"const t=nodemailer.createTransport({host:'smtp.gmail.com',port:587,secure:false,auth:{user,pass}});\",
+                    \"t.sendMail({from:user,to,subject,text:body})\",
+                    \".then(i=>console.log('Email sent to '+to+' ('+i.messageId+')'))\",
+                    \".catch(e=>{console.error('Send failed: '+e.message);process.exit(1);});\",
+                  ].join('\n');
+                  fs.writeFileSync('/home/node/.openclaw/workspace/send-email.js', script);
+                " 2>/dev/null || true
+                echo "[init-config] Gmail email configured for ${GMAIL_USER}"
+              fi
+
+              # Write check-inbox.js — lets the agent show operator unread lead replies on demand.
+              node -e "
+                const fs = require('fs'), path = require('path');
+                const script = [
+                  \"'use strict';\",
+                  \"const fs = require('fs'), path = require('path');\",
+                  \"const INBOX = path.join(process.env.STATE_DIR||'/home/node/.openclaw','inbox.json');\",
+                  \"let box={unread:[],read:[]};\",
+                  \"try{box=JSON.parse(fs.readFileSync(INBOX,'utf8'));}catch(e){}\",
+                  \"if(!box.unread.length){console.log(JSON.stringify({count:0,messages:[],note:'No unread replies.'}));process.exit(0);}\",
+                  \"const out={count:box.unread.length,messages:box.unread.map((m,i)=>({index:i+1,from:(m.leadName||m.from)+' <'+m.from+'>',subject:m.subject,received:m.receivedAt,preview:m.snippet,intent:m.intent||'unknown'}))}\",
+                  \";box.read.push(...box.unread);box.unread=[];\",
+                  \"fs.writeFileSync(INBOX,JSON.stringify(box,null,2));\",
+                  \"console.log(JSON.stringify(out,null,2));\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/check-inbox.js', script);
+              " 2>/dev/null || true
+              echo "[init-config] check-inbox.js written to workspace."
+
+              # Write read-company.js and update-company.js for company knowledge base.
+              node -e "
+                const fs = require('fs');
+                const readScript = [
+                  \"'use strict';\",
+                  \"const fs = require('fs'), path = require('path');\",
+                  \"const f = path.join(process.env.STATE_DIR||'/home/node/.openclaw','workspace','company.md');\",
+                  \"if (!fs.existsSync(f)) { console.log('No company knowledge base set yet. Ask the operator to add company info.'); process.exit(0); }\",
+                  \"console.log(fs.readFileSync(f,'utf8'));\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/read-company.js', readScript);
+
+                const updateScript = [
+                  \"'use strict';\",
+                  \"const fs = require('fs'), path = require('path');\",
+                  \"const f = path.join(process.env.STATE_DIR||'/home/node/.openclaw','workspace','company.md');\",
+                  \"const content = process.argv.slice(2).join(' ');\",
+                  \"if (!content.trim()) { console.error('No content provided.'); process.exit(1); }\",
+                  \"fs.writeFileSync(f, content.trim());\",
+                  \"console.log('Company knowledge base updated (' + content.length + ' chars).');\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/update-company.js', updateScript);
+              " 2>/dev/null || true
+
+              # Pre-seed company.md from COMPANY_DESCRIPTION if provided and file doesn't exist yet.
+              if [ -n \"\${COMPANY_DESCRIPTION}\" ] && [ ! -f /home/node/.openclaw/workspace/company.md ]; then
+                node -e "
+                  const fs = require('fs');
+                  fs.writeFileSync('/home/node/.openclaw/workspace/company.md', process.env.COMPANY_DESCRIPTION.trim());
+                  console.error('[init-config] company.md pre-seeded from COMPANY_DESCRIPTION.');
+                " 2>&1 || true
+              fi
+              echo "[init-config] company knowledge base scripts ready."
+
+              # Write notify-operator.js — the SDR agent's escalation/notification tool.
+              # Sends a formatted Telegram alert AND prints the payload to stdout so
+              # OpenClaw captures it in the conversation log (the "UI notification").
+              # Uses Node's built-in https module — no npm deps required.
+              node -e "
+                const fs = require('fs');
+                const script = [
+                  \"#!/usr/bin/env node\",
+                  \"'use strict';\",
+                  \"const https = require('https');\",
+                  \"const raw = process.argv[2];\",
+                  \"if (!raw) { console.error('Usage: notify-operator.js <json-payload>'); process.exit(1); }\",
+                  \"let p;\",
+                  \"try { p = JSON.parse(raw); } catch (e) { console.error('Invalid JSON payload: ' + e.message); process.exit(1); }\",
+                  \"const sev = (p.severity || 'P2').toUpperCase();\",
+                  \"const icon = sev === 'P0' ? '\\\\uD83D\\\\uDEA8' : sev === 'P1' ? '\\\\u26A0\\\\uFE0F' : '\\\\u2139\\\\uFE0F';\",
+                  \"const silent = p.silent === true;\",
+                  \"const ts = p.timestamp || new Date().toISOString();\",
+                  \"const conf = (typeof p.agent_confidence === 'number') ? p.agent_confidence.toFixed(2) : 'n/a';\",
+                  \"const esc = (s) => String(s == null ? '' : s).replace(/[*_\\\\[\\\\]]/g, ' ');\",
+                  \"const lines = [\",
+                  \"  icon + ' *' + sev + ' Escalation* ' + (silent ? '(silent)' : ''),\",
+                  \"  '',\",
+                  \"  '*Reason:* ' + esc(p.reason || 'unspecified'),\",
+                  \"  '*Customer:* ' + esc(p.customer_name || 'unknown'),\",
+                  \"  '*Email:* ' + esc(p.email || 'unknown'),\",
+                  \"  '*Company:* ' + esc(p.company || 'unknown'),\",
+                  \"  '',\",
+                  \"  '*Summary:* ' + esc(p.conversation_summary || ''),\",
+                  \"  '',\",
+                  \"  '*Recommended action:* ' + esc(p.recommended_action || ''),\",
+                  \"  '',\",
+                  \"  '*Agent confidence:* ' + conf,\",
+                  \"  '*Time:* ' + esc(ts),\",
+                  \"];\",
+                  \"const text = lines.join('\\\\n');\",
+                  \"const token = process.env.TELEGRAM_BOT_TOKEN || '';\",
+                  \"const STATE_FILE = (process.env.STATE_DIR || '/home/node/.openclaw') + '/state.json';\",
+                  \"function loadChatId() {\",
+                  \"  const explicit = process.env.TELEGRAM_APPROVAL_CHAT_ID || '';\",
+                  \"  if (explicit) return explicit;\",
+                  \"  try { const s = JSON.parse(require('fs').readFileSync(STATE_FILE,'utf8')); return s._telegramChatId || ''; } catch(e) { return ''; }\",
+                  \"}\",
+                  \"async function resolveChatId() {\",
+                  \"  const cached = loadChatId();\",
+                  \"  if (cached) return cached;\",
+                  \"  if (token.length < 10) return '';\",
+                  \"  try {\",
+                  \"    const res = await new Promise((resolve) => {\",
+                  \"      const req = require('https').request({ hostname:'api.telegram.org', path:'/bot'+token+'/getUpdates?limit=1&allowed_updates=message', method:'GET' }, (r) => { let d=''; r.on('data',c=>d+=c); r.on('end',()=>{ try{resolve(JSON.parse(d));}catch(e){resolve(null);} }); }); req.on('error',()=>resolve(null)); req.end();\",
+                  \"    });\",
+                  \"    const updates = (res && res.result) || [];\",
+                  \"    if (updates.length > 0) {\",
+                  \"      const id = String(updates[0].message.chat.id);\",
+                  \"      try { const fs=require('fs'); let s={}; try{s=JSON.parse(fs.readFileSync(STATE_FILE,'utf8'));}catch(e){} s._telegramChatId=id; fs.writeFileSync(STATE_FILE,JSON.stringify(s,null,2)); } catch(e) {}\",
+                  \"      return id;\",
+                  \"    }\",
+                  \"  } catch(e) {}\",
+                  \"  return '';\",
+                  \"}\",
+                  \"function emitStdout() {\",
+                  \"  if (silent) { console.log('Escalation logged.'); return; }\",
+                  \"  console.log(JSON.stringify(p, null, 2));\",
+                  \"}\",
+                  \"async function sendTelegram(chat) {\",
+                  \"  return new Promise((resolve) => {\",
+                  \"    if (token.length < 10 || !chat) { resolve(false); return; }\",
+                  \"    const body = JSON.stringify({ chat_id: chat, text: text, parse_mode: 'Markdown' });\",
+                  \"    const req = https.request({\",
+                  \"      hostname: 'api.telegram.org', path: '/bot' + token + '/sendMessage', method: 'POST',\",
+                  \"      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }\",
+                  \"    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode >= 200 && res.statusCode < 300)); });\",
+                  \"    req.on('error', () => resolve(false));\",
+                  \"    req.write(body); req.end();\",
+                  \"  });\",
+                  \"}\",
+                  \"(async () => { try { const chat = await resolveChatId(); await sendTelegram(chat); } catch (e) {} emitStdout(); process.exit(0); })();\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/notify-operator.js', script);
+              " 2>/dev/null || true
+              echo "[init-config] notify-operator.js written to workspace."
+
+              # Inject channels.telegram — pairing-only, secure by default.
+              # The Telegram user is the OPERATOR (your boss); leads come in via email. Activates
+              # only for a real bot-token shape (<digits>:<secret>) so the platform's auto-generated
+              # placeholder for the blank field is ignored and can't crash-loop the channel. Unknown
+              # DMs are HELD pending until the operator approves them from the Control UI via the
+              # telegram-pairing MCP tools (the only approval path — no shell/CLI needed). NEVER use
+              # dmPolicy:'open' — that bypasses the gateway-token gate and leaves the bot open.
+              if [ ${#TELEGRAM_BOT_TOKEN} -gt 10 ]; then
+                node -e "
+                  const fs = require('fs');
+                  const p = '/home/node/.openclaw/openclaw.json';
+                  const tok = process.env.TELEGRAM_BOT_TOKEN || '';
+                  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(tok)) {
+                    console.error('[init-config] TELEGRAM_BOT_TOKEN is not a valid bot-token shape — skipping Telegram.');
+                    process.exit(0);
+                  }
+                  const c = JSON.parse(fs.readFileSync(p,'utf8'));
+                  c.channels = { telegram: { enabled: true, dmPolicy: 'pairing', allowFrom: [], botToken: tok } };
+                  if (!c.mcp) c.mcp = {};
+                  if (!c.mcp.servers) c.mcp.servers = {};
+                  c.mcp.servers['telegram-pairing'] = { command: 'node', args: ['/home/node/.openclaw/tg-pairing-mcp.js'] };
+                  fs.writeFileSync(p, JSON.stringify(c,null,2));
+                  console.error('[init-config] Telegram channel configured (pairing mode + approval MCP).');
+                " 2>&1 || true
+              fi
+
+              # Pre-approve exec calls so the SDR agent can run send-email.js without prompting.
+              # Written here to bypass the CLI's chmod call which fails on root-owned PVC root.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.openclaw/exec-approvals.json';
+                if (!fs.existsSync(p)) {
+                  const data = {
+                    version: 1,
+                    agents: {
+                      sdr: {
+                        allowlist: [
+                          'node /home/node/.openclaw/workspace/send-email.js *',
+                          'node /home/node/.openclaw/workspace/notify-operator.js *',
+                          'node /home/node/.openclaw/workspace/*.js *',
+                          'node /automation/*.js *'
+                        ]
+                      }
+                    },
+                    allowlist: []
+                  };
+                  fs.writeFileSync(p, JSON.stringify(data, null, 2));
+                  console.error('[init-config] exec-approvals.json created for sdr agent.');
+                }
+              " 2>&1 || true
+
+              # Pre-load HubSpot credentials from secret if provided at deploy time.
+              if [ ${#HUBSPOT_ACCESS_TOKEN} -gt 10 ]; then
+                node -e "
+                  const fs=require('fs');
+                  const base=(process.env.HUBSPOT_API_BASE||'https://api.hubapi.com').replace(/\/+\$/,'');
+                  fs.writeFileSync('/home/node/.openclaw/hubspot-creds.json',
+                    JSON.stringify({accessToken:process.env.HUBSPOT_ACCESS_TOKEN,apiBase:base,savedAt:'pre-loaded'},null,2));
+                  console.error('[init-config] HubSpot token pre-loaded from secret.');
+                " 2>/dev/null || true
+              fi
+
+              # Write save-hubspot-creds.js — lets the operator set HubSpot token at chat time.
+              node -e "
+                const fs = require('fs');
+                const script = [
+                  \"'use strict';\",
+                  \"const fs = require('fs');\",
+                  \"const token = (process.argv[2] || '').trim();\",
+                  \"const apiBase = (process.argv[3] || 'https://api.hubapi.com').replace(/\\/+\$/, '');\",
+                  \"if (!/^pat-/.test(token)) { console.error('Invalid HubSpot token. Expected a Private App token starting with pat-.'); process.exit(1); }\",
+                  \"const f = (process.env.STATE_DIR || '/home/node/.openclaw') + '/hubspot-creds.json';\",
+                  \"fs.writeFileSync(f, JSON.stringify({ accessToken: token, apiBase: apiBase, savedAt: new Date().toISOString() }, null, 2));\",
+                  \"console.log('HubSpot token saved. CRM sync is now active (no restart needed).');\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/save-hubspot-creds.js', script);
+              " 2>/dev/null || true
+
+              # Write hubspot.js — CRM tool for agent: find <email> and upsert.
+              node -e "
+                const fs = require('fs');
+                const script = [
+                  \"'use strict';\",
+                  \"const fs = require('fs');\",
+                  \"const cmd = process.argv[2], arg = process.argv.slice(3).join(' ');\",
+                  \"function loadCreds() {\",
+                  \"  try { return JSON.parse(fs.readFileSync((process.env.STATE_DIR||'/home/node/.openclaw')+'/hubspot-creds.json','utf8')); } catch(e) { return null; }\",
+                  \"}\",
+                  \"async function findContact(email) {\",
+                  \"  const c = loadCreds(); if (!c || !c.accessToken) { console.error('No HubSpot credentials. Run: node save-hubspot-creds.js <pat-...>'); process.exit(1); }\",
+                  \"  const base = (c.apiBase||'https://api.hubapi.com').replace(/\\/+\$/,'');\",
+                  \"  const r = await fetch(base+'/crm/v3/objects/contacts/'+encodeURIComponent(email)+'?idProperty=email', { headers: { authorization: 'Bearer '+c.accessToken } });\",
+                  \"  if (r.status === 404) { console.log(JSON.stringify({found:false})); return; }\",
+                  \"  if (!r.ok) { console.error('HubSpot error HTTP '+r.status); process.exit(1); }\",
+                  \"  const j = await r.json(); console.log(JSON.stringify({found:true,id:j.id,properties:j.properties},null,2));\",
+                  \"}\",
+                  \"async function upsertContact(email, firstName, lastName, company) {\",
+                  \"  const c = loadCreds(); if (!c || !c.accessToken) { console.error('No HubSpot credentials.'); process.exit(1); }\",
+                  \"  const base = (c.apiBase||'https://api.hubapi.com').replace(/\\/+\$/,'');\",
+                  \"  const H = { authorization: 'Bearer '+c.accessToken, 'content-type': 'application/json' };\",
+                  \"  const props = { email, firstname: firstName||'', lastname: lastName||'' };\",
+                  \"  if (company) props.company = company.slice(0,100);\",
+                  \"  let r = await fetch(base+'/crm/v3/objects/contacts', { method:'POST', headers:H, body:JSON.stringify({properties:props}) });\",
+                  \"  if (r.status === 409) r = await fetch(base+'/crm/v3/objects/contacts/'+encodeURIComponent(email)+'?idProperty=email', { method:'PATCH', headers:H, body:JSON.stringify({properties:props}) });\",
+                  \"  if (!r.ok) { console.error('HubSpot error HTTP '+r.status); process.exit(1); }\",
+                  \"  const j = await r.json(); console.log(JSON.stringify({id:j.id,email},null,2));\",
+                  \"}\",
+                  \"if (cmd==='find' && arg) findContact(arg).catch(e=>{console.error(e.message);process.exit(1);});\",
+                  \"else if (cmd==='upsert' && arg) { const p=arg.split(/\\\\s+/); upsertContact(p[0],p[1],p[2],p.slice(3).join(' ')).catch(e=>{console.error(e.message);process.exit(1);}); }\",
+                  \"else { console.error('Usage: hubspot.js find <email> | hubspot.js upsert <email> <firstName> <lastName> [company]'); process.exit(1); }\",
+                ].join('\n');
+                fs.writeFileSync('/home/node/.openclaw/workspace/hubspot.js', script);
+              " 2>/dev/null || true
+              echo "[init-config] HubSpot workspace scripts written."
+
+              # Copy reference MD files from ConfigMap (always overwrite — read-only reference content).
+              for f in TOOLS.md IDENTITY.md USER.md HEARTBEAT.md; do
+                cp /config/$f /home/node/.openclaw/workspace/$f
+              done
+              # MEMORY.md accumulates across restarts — only initialize if missing.
+              if [ ! -f /home/node/.openclaw/workspace/MEMORY.md ]; then
+                cp /config/MEMORY.md /home/node/.openclaw/workspace/MEMORY.md
+              fi
+              echo "[init-config] workspace files initialized."
+
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: TELEGRAM_APPROVAL_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: TELEGRAM_APPROVAL_CHAT_ID
+                  optional: true
+            - name: COMPANY_DESCRIPTION
+              value: {{ .Values.openclaw.companyDescription | quote }}
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_ACCESS_TOKEN
+                  optional: true
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_API_BASE
+                  optional: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+      containers:
+        # ─── OpenClaw Gateway ────────────────────────────────────────────────
+        - name: gateway
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/app/dist/index.js", "gateway", "run"]
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /home/node
+            - name: OPENCLAW_CONFIG_DIR
+              value: /home/node/.openclaw
+            - name: NODE_ENV
+              value: production
+            - name: NODE_OPTIONS
+              value: "--dns-result-order=ipv4first"
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_ACCESS_TOKEN
+                  optional: true
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: HUBSPOT_API_BASE
+                  optional: true
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
+            - name: TELEGRAM_APPROVAL_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: TELEGRAM_APPROVAL_CHAT_ID
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GMAIL_USER
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: GMAIL_APP_PASSWORD
+                  optional: true
+          resources:
+            {{- toYaml .Values.openclaw.resources | nindent 12 }}
+          # tcpSocket liveness — port opens ~90-120s after start.
+          # httpGet /health does NOT exist in this version of OpenClaw.
+          livenessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 150
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Process-alive readiness so platform marks deployment Ready before port opens.
+          # The gateway port (~90s) is slower than the platform's 120s wait — this avoids
+          # a premature failure that would cause the platform to mark deploy as failed.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: tmp-volume
+              mountPath: /tmp
+            - name: automation
+              mountPath: /automation
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── Ingress WebSocket Patcher ────────────────────────────────────────
+        # Patches the platform-created ingress with HAProxy WebSocket timeout annotation.
+        # The platform creates ingress-{release} AFTER helm install completes —
+        # we cannot set annotations in chart templates. This sidecar polls until
+        # the ingress appears, patches it once, then idles.
+        # Reuses the openclaw image (already pulled) — no extra image pull cost.
+        - name: ingress-patcher
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command:
+            - node
+            - -e
+            - |
+              'use strict';
+              const https = require('https');
+              const fs   = require('fs');
+              const token   = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/token', 'utf8').trim();
+              const ns      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+              const ca      = fs.readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/ca.crt');
+              const ingress = 'ingress-{{ .Release.Name }}';
+              const base    = '/apis/networking.k8s.io/v1/namespaces/' + ns + '/ingresses/' + ingress;
+              const patch   = JSON.stringify({ metadata: { annotations: {
+                'haproxy-ingress.github.io/timeout-tunnel':        '1h',
+                'haproxy-ingress.github.io/health-check-interval': '0'
+              }}});
+              function apiCall(method, path, body) {
+                return new Promise(resolve => {
+                  const opts = { hostname: 'kubernetes.default.svc', path, method, ca,
+                    headers: { Authorization: 'Bearer ' + token } };
+                  if (body) { opts.headers['Content-Type'] = 'application/merge-patch+json';
+                    opts.headers['Content-Length'] = Buffer.byteLength(body); }
+                  const req = https.request(opts, res => { resolve(res.statusCode); res.resume(); });
+                  req.on('error', () => resolve(0));
+                  if (body) req.write(body);
+                  req.end();
+                });
+              }
+              async function run() {
+                for (let i = 0; i < 24; i++) {
+                  const status = await apiCall('GET', base, null);
+                  if (status === 200) {
+                    const patched = await apiCall('PATCH', base, patch);
+                    console.log('[ingress-patcher] patched ' + ingress + ' → HTTP ' + patched);
+                    return;
+                  }
+                  console.log('[ingress-patcher] waiting for ingress (' + (i+1) + '/24)...');
+                  await new Promise(r => setTimeout(r, 5000));
+                }
+                console.log('[ingress-patcher] ingress not found after 120s — skipping');
+              }
+              run().catch(e => console.error('[ingress-patcher]', e))
+                   .finally(() => setInterval(() => {}, 2147483647));
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── Phase 2: Autonomous Outreach Scheduler ───────────────────────────
+        # Drives the background loops (reply handling, follow-ups, enrichment+scoring).
+        # Reuses the openclaw image (already pulled — no extra pull). Installs its Node
+        # deps to the shared PVC on first boot, then runs the scheduler. The interactive
+        # gateway above is completely unaffected — this only adds the autonomous lane.
+        - name: automation
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              export HOME=/home/node
+              DEPS=/home/node/.openclaw/npm-automation
+              if [ ! -d "$DEPS/node_modules/imapflow" ]; then
+                echo "[automation] installing deps (nodemailer imapflow mailparser)..."
+                npm install --prefix "$DEPS" nodemailer imapflow mailparser 2>&1 | tail -3 || true
+              fi
+              echo "[automation] starting scheduler"
+              exec node /automation/scheduler.js
+          env:
+            - name: HOME
+              value: /home/node
+            - name: STATE_DIR
+              value: /home/node/.openclaw
+            - name: SDR_NAME
+              value: {{ .Values.openclaw.sdrName | quote }}
+            - name: COMPANY_NAME
+              value: {{ .Values.openclaw.companyName | quote }}
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: HUBSPOT_ACCESS_TOKEN, optional: true }
+            - name: HUBSPOT_API_BASE
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: HUBSPOT_API_BASE, optional: true }
+            - name: OPENAI_API_BASE
+              value: "http://localhost:3000"
+            - name: OUTREACH_ENABLED
+              value: {{ .Values.outreach.enabled | quote }}
+            - name: OUTREACH_AUTO_OUTREACH
+              value: {{ .Values.outreach.autoOutreachEnabled | quote }}
+            - name: OUTREACH_SCORE_THRESHOLD
+              value: {{ .Values.outreach.leadScoreThreshold | quote }}
+            - name: OUTREACH_FOLLOWUP_DAYS
+              value: {{ .Values.outreach.followUpDays | quote }}
+            - name: OUTREACH_REPLY_POLL_MINUTES
+              value: {{ .Values.outreach.replyPollMinutes | quote }}
+            - name: OUTREACH_PROSPECTING_ENABLED
+              value: {{ .Values.outreach.prospectingEnabled | quote }}
+            - name: OUTREACH_MAX_EMAILS_PER_DAY
+              value: {{ .Values.outreach.maxEmailsPerDay | quote }}
+            - name: JINA_AI_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: JINA_AI_KEY, optional: true }
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: GMAIL_USER, optional: true }
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: GMAIL_APP_PASSWORD, optional: true }
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: TELEGRAM_BOT_TOKEN, optional: true }
+            - name: TELEGRAM_APPROVAL_CHAT_ID
+              valueFrom:
+                secretKeyRef: { name: {{ .Release.Name }}-secrets, key: TELEGRAM_APPROVAL_CHAT_ID, optional: true }
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 384Mi
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: automation
+              mountPath: /automation
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+
+        # ─── E2E TIR Proxy ────────────────────────────────────────────────────
+        # Intercepts /v1/models, /v1/chat/completions, /v1/responses on :3000.
+        # In setup mode (no stored token) returns a welcome SSE asking for bearer token.
+        # On valid JWT input: saves to PVC, restarts pod so gateway picks it up.
+        - name: e2e-setup-proxy
+          image: {{ .Values.openclaw.image.repository }}:{{ .Values.openclaw.image.tag }}
+          imagePullPolicy: {{ .Values.openclaw.image.pullPolicy }}
+          command: ["node", "/config/e2e-setup-proxy.js"]
+          ports:
+            - name: proxy
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: E2E_PROJECT_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_PROJECT_NAMESPACE
+                  optional: true
+            - name: E2E_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_MODEL_NAME
+                  optional: true
+            - name: E2E_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: E2E_BEARER_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-home
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+
+      volumes:
+        - name: openclaw-home
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-openclaw-home
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-openclaw-config
+        - name: tmp-volume
+          emptyDir: {}
+        - name: automation
+          configMap:
+            name: {{ .Release.Name }}-automation

@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 2.0.0
+description: OpenClaw PageSense Analyst — Ask questions about your Zoho PageSense
+  conversions, experiments, and traffic in natural language
+name: openclaw-pagesense-agent
+type: application
+version: 2.0.0

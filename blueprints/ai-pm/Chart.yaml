@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 2026.6.18
+description: AI Project Manager — OpenClaw AI chat gateway connected to Zoho Sprints
+  (E2E TIR)
+name: ai-pm
+type: application
+version: 2026.6.18

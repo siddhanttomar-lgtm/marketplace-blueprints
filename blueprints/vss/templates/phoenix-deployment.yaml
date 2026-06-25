@@ -1,0 +1,50 @@
+{{- if .Values.phoenix.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-phoenix
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: phoenix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: phoenix
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: phoenix
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "vss.fullname" . }}-nvcr-pull
+      containers:
+        - name: phoenix
+          image: {{ .Values.phoenix.image }}
+          env:
+            - name: PHOENIX_WORKING_DIR
+              value: "/.phoenix/"
+          ports:
+            - containerPort: {{ .Values.phoenix.port }}
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.phoenix.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.phoenix.resources | nindent 12 }}
+          volumeMounts:
+            - name: phoenix-data
+              mountPath: /.phoenix
+      volumes:
+        - name: phoenix-data
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-phoenix-data
+{{- end }}

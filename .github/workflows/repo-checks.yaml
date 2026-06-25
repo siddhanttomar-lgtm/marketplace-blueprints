@@ -1,0 +1,61 @@
+name: Repo Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "scripts/**"
+      - "*.md"
+      - ".charts-releaser.yaml"
+      - ".yamllint"
+      - "Makefile"
+      - ".gitignore"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/**"
+      - "scripts/**"
+      - "*.md"
+      - ".charts-releaser.yaml"
+      - ".yamllint"
+      - "Makefile"
+      - ".gitignore"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-and-workflow-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: "./scripts"
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1.7.12
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: .github/workflows .charts-releaser.yaml
+          config_file: .yamllint
+
+  markdown-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check Markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline --no-progress
+            README.md CONTRIBUTING.md DEVELOPER.md SECURITY.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

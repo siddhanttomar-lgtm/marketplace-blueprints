@@ -1,0 +1,69 @@
+{{- if ne (.Values.standup.enabled | toString | lower) "false" }}
+{{- $root := . }}
+{{/* mode → schedule mapping. Each becomes a CronJob running `zoho-sprints.js <command>`. */}}
+{{- $jobs := dict
+      "morning-brief"  .Values.standup.morningCron
+      "eod"            .Values.standup.eodCron
+      "alert-check"    .Values.standup.alertCron
+      "daily-snapshot" .Values.standup.snapshotCron
+      "weekly-report"  .Values.standup.weeklyCron }}
+{{- range $job, $schedule := $jobs }}
+{{- if $schedule }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $root.Release.Name }}-{{ $job }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    app: {{ $root.Release.Name }}-cron
+    job: {{ $job }}
+spec:
+  schedule: {{ $schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: OnFailure
+          imagePullSecrets:
+            - name: registry-pull-secret
+          serviceAccountName: {{ $root.Release.Name }}-patcher
+          volumes:
+            - name: openclaw-home
+              persistentVolumeClaim:
+                claimName: {{ $root.Release.Name }}-openclaw-home
+          containers:
+            - name: {{ $job }}
+              image: "{{ $root.Values.openclaw.image.repository }}:{{ $root.Values.openclaw.image.tag }}"
+              imagePullPolicy: {{ $root.Values.openclaw.image.pullPolicy }}
+              command: ["sh", "-c"]
+              args:
+                - |
+                  cd /home/node/.openclaw/workspace
+                  echo "[cron:{{ $job }}] starting $(date -u)"
+                  {{- if eq $job "eod" }}
+                  node zoho-sprints.js standup-all --mode eod
+                  {{- else }}
+                  node zoho-sprints.js {{ $job }}
+                  {{- end }}
+                  echo "[cron:{{ $job }}] done"
+              volumeMounts:
+                - name: openclaw-home
+                  mountPath: /home/node/.openclaw
+              env:
+                {{- range $k := list "ZOHO_CLIENT_ID" "ZOHO_CLIENT_SECRET" "ZOHO_REFRESH_TOKEN" "ZOHO_WORKSPACE_ID" "SLACK_BOT_TOKEN" "SLACK_TEAM_ID" "SLACK_STANDUP_CHANNEL" "TELEGRAM_BOT_TOKEN" "TELEGRAM_CHAT_ID" "TELEGRAM_ALLOWED_USER_IDS" "STAKEHOLDER_EMAILS" }}
+                - name: {{ $k }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $root.Release.Name }}-credentials
+                      key: {{ $k }}
+                      optional: true
+                {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

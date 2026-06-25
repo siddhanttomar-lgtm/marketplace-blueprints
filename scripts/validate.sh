@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# validate.sh — helm lint + template dry-run for all charts under blueprints/
-set -e
+# validate.sh - helm lint + template dry-run for all charts under blueprints/
+set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 found=0
+rendered_output="$(mktemp)"
+trap 'rm -f "$rendered_output"' EXIT
 
 for chart in "$REPO_ROOT"/blueprints/*/; do
   [ -f "${chart}Chart.yaml" ] || continue
@@ -12,7 +14,13 @@ for chart in "$REPO_ROOT"/blueprints/*/; do
 
   helm lint "$chart" --strict
 
-  helm template test "$chart" > /dev/null
+  ci_args=()
+  [ -f "${chart}ci/ci-values.yaml" ] && ci_args=(-f "${chart}ci/ci-values.yaml")
+  helm template test "$chart" "${ci_args[@]}" > "$rendered_output"
+  if ! grep -q '^kind:' "$rendered_output"; then
+    echo "ERROR: blueprints/$name rendered no Kubernetes resources"
+    exit 1
+  fi
 
   echo "  OK"
   found=1

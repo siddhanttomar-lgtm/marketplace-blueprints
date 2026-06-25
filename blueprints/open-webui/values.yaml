@@ -1,0 +1,71 @@
+replicaCount: 1
+
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR GenAI — user supplies bearer token; project namespace is platform-injected above.
+e2e:
+  projectNamespace: ""     # manual fallback; normally set via global.platform.tirProjectId
+  bearerToken: ""          # user's E2E TIR access token (deploy variable e2e.bearerToken)
+
+imagePullSecrets:
+  - name: registry-pull-secret
+
+# External LLM API keys — leave empty if not using that provider
+openaiApiKey: ""
+anthropicApiKey: ""
+groqApiKey: ""
+googleApiKey: ""
+fireworksApiKey: ""
+mistralApiKey: ""
+perplexityApiKey: ""
+
+litellm:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/litellm
+    tag: "v1.72.6"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+webui:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/open-webui
+    tag: "v0.9.5"
+    pullPolicy: IfNotPresent
+  adminEmail: ""
+  adminPassword: "OpenWebUI@12345"
+  storage:
+    size: 2Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+whisper:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/fedirz/faster-whisper-server
+    tag: "0.5.0-cpu"
+    pullPolicy: IfNotPresent
+  model: "tiny"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+persistence:
+  accessMode: ReadWriteOnce

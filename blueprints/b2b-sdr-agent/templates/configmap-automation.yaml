@@ -1,0 +1,697 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-automation
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "b2b-sdr.labels" . | nindent 4 }}
+data:
+  lib.js: |
+    'use strict';
+    // Shared helpers for the B2B SDR autonomous loops.
+    // State is authoritative locally (survives restarts on the PVC); Twenty CRM is a
+    // best-effort mirror for user visibility. Loops never crash on a CRM/IMAP failure.
+    const fs = require('fs');
+    const path = require('path');
+
+    const NM_DIR = '/home/node/.openclaw/npm-automation/node_modules';
+    function req(mod) { return require(path.join(NM_DIR, mod)); }
+
+    const STATE_DIR = process.env.STATE_DIR || '/home/node/.openclaw';
+    const STATE_FILE = path.join(STATE_DIR, 'automation-state.json');
+    const COUNTER_FILE = path.join(STATE_DIR, 'automation-counters.json');
+
+    function log(scope, msg) {
+      console.log('[' + new Date().toISOString() + '] [' + scope + '] ' + msg);
+    }
+
+    function loadState() {
+      try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); }
+      catch (e) { return { leads: [] }; }
+    }
+    function saveState(state) {
+      const tmp = STATE_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+      fs.renameSync(tmp, STATE_FILE);
+    }
+    function findLeadByEmail(state, email) {
+      if (!email) return null;
+      const e = email.toLowerCase();
+      return state.leads.find(function (l) { return (l.email || '').toLowerCase() === e; }) || null;
+    }
+
+    // ── Daily email counter for the send cap ─────────────────────────────────
+    function todayKey() { return new Date().toISOString().slice(0, 10); }
+    function getSentToday() {
+      try {
+        const c = JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8'));
+        return c.date === todayKey() ? c.count : 0;
+      } catch (e) { return 0; }
+    }
+    function incSentToday(n) {
+      const count = getSentToday() + (n || 1);
+      fs.writeFileSync(COUNTER_FILE, JSON.stringify({ date: todayKey(), count: count }));
+      return count;
+    }
+    function maxEmailsPerDay() {
+      const v = parseInt(process.env.OUTREACH_MAX_EMAILS_PER_DAY || '50', 10);
+      return isNaN(v) ? 50 : v;
+    }
+    function autoOutreach() { return (process.env.OUTREACH_AUTO_OUTREACH || 'false') === 'true'; }
+    function autoReply() { return false; } // disabled — inbound replies always queue for operator approval
+    function scoreThreshold() {
+      const v = parseInt(process.env.OUTREACH_SCORE_THRESHOLD || '70', 10);
+      return isNaN(v) ? 70 : v;
+    }
+    function followUpDays() {
+      return (process.env.OUTREACH_FOLLOWUP_DAYS || '2,5,10')
+        .split(',').map(function (s) { return parseInt(s.trim(), 10); })
+        .filter(function (n) { return !isNaN(n); });
+    }
+
+    // ── LLM provider selection (mirrors init-config logic) ───────────────────
+    function pickProvider() {
+      const e = process.env;
+      if ((e.ANTHROPIC_API_KEY || '').length > 30)
+        return { kind: 'anthropic', key: e.ANTHROPIC_API_KEY, model: 'claude-sonnet-4-5' };
+      if ((e.OPENAI_API_KEY || '').length > 30)
+        return { kind: 'openai', key: e.OPENAI_API_KEY, model: 'gpt-4o-mini', base: e.OPENAI_API_BASE || 'https://api.openai.com/v1' };
+      if ((e.GOOGLE_API_KEY || '').length > 20)
+        return { kind: 'google', key: e.GOOGLE_API_KEY, model: 'gemini-2.0-flash' };
+      if ((e.GROQ_API_KEY || '').length > 30)
+        return { kind: 'openai', key: e.GROQ_API_KEY, model: 'llama-3.3-70b-versatile', base: 'https://api.groq.com/openai/v1' };
+      if ((e.FIREWORKS_API_KEY || '').length > 10)
+        return { kind: 'openai', key: e.FIREWORKS_API_KEY, model: 'accounts/fireworks/models/deepseek-v4-pro', base: 'https://api.fireworks.ai/inference/v1' };
+      return null;
+    }
+
+    async function callLLM(system, user) {
+      const p = pickProvider();
+      if (!p) { log('llm', 'no API key available — skipping LLM call'); return null; }
+      try {
+        if (p.kind === 'anthropic') {
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-api-key': p.key, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: p.model, max_tokens: 1024, system: system, messages: [{ role: 'user', content: user }] })
+          });
+          const j = await r.json();
+          return (j && j.content && j.content[0] && j.content[0].text) || null;
+        }
+        if (p.kind === 'google') {
+          const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + p.model + ':generateContent?key=' + p.key;
+          const r = await fetch(url, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ parts: [{ text: user }] }] })
+          });
+          const j = await r.json();
+          return (j && j.candidates && j.candidates[0] && j.candidates[0].content
+            && j.candidates[0].content.parts && j.candidates[0].content.parts[0]
+            && j.candidates[0].content.parts[0].text) || null;
+        }
+        // openai-compatible: openai, groq, fireworks
+        const r = await fetch(p.base + '/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + p.key },
+          body: JSON.stringify({ model: p.model, max_tokens: 1024, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+        });
+        const j = await r.json();
+        return (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || null;
+      } catch (err) { log('llm', 'call failed: ' + err.message); return null; }
+    }
+
+    // Extract the first {...} JSON object from an LLM response (tolerant of prose/fences).
+    function extractJson(text) {
+      if (!text) return null;
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start < 0 || end <= start) return null;
+      try { return JSON.parse(text.slice(start, end + 1)); } catch (e) { return null; }
+    }
+
+    // ── Email: SMTP send + IMAP poll ─────────────────────────────────────────
+    async function sendEmail(to, subject, body) {
+      const nodemailer = req('nodemailer');
+      const user = process.env.GMAIL_USER, pass = process.env.GMAIL_APP_PASSWORD;
+      if (!user || !pass) throw new Error('GMAIL_USER/GMAIL_APP_PASSWORD not set');
+      const t = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, auth: { user: user, pass: pass } });
+      const info = await t.sendMail({ from: user, to: to, subject: subject, text: body });
+      return info.messageId;
+    }
+
+    // Track processed UIDs ourselves — never rely on Gmail \Seen flag.
+    // fetchOne with source:true makes an IMAP BODY[] fetch which auto-marks \Seen,
+    // so searching { seen: false } on subsequent polls returns 0 results even though
+    // the message was never actually processed. We use a local PVC file instead.
+    const IMAP_PROCESSED_FILE = path.join(process.env.STATE_DIR || '/home/node/.openclaw', 'imap-processed.json');
+    function loadProcessed() {
+      try { return new Set(JSON.parse(fs.readFileSync(IMAP_PROCESSED_FILE, 'utf8'))); } catch(e) {}
+      return new Set();
+    }
+    function saveProcessed(set) {
+      const arr = [...set];
+      // keep last 2000 UIDs to prevent unbounded growth
+      try { fs.writeFileSync(IMAP_PROCESSED_FILE, JSON.stringify(arr.slice(-2000))); } catch(e) {}
+    }
+
+    async function fetchUnseen(limit) {
+      const imapflow = req('imapflow');
+      const simpleParser = req('mailparser').simpleParser;
+      const client = new imapflow.ImapFlow({
+        host: 'imap.gmail.com', port: 993, secure: true,
+        auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+        logger: false
+      });
+      const processed = loadProcessed();
+      const out = [];
+      await client.connect();
+      const lock = await client.getMailboxLock('INBOX');
+      try {
+        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const uids = await client.search({ since: since }, { uid: true });
+        const unhandled = (uids || []).filter(uid => !processed.has(String(uid))).slice(0, limit || 20);
+        for (const uid of unhandled) {
+          // Mark as processed FIRST — before any async work.
+          // Anti-spam guarantee: even if fetchOne throws, SMTP fails, or the
+          // process crashes mid-loop, this UID will never be retried.
+          // Tradeoff: a failed send is a silent drop, not a double-send.
+          // Silent drops are recoverable (operator can manually follow up).
+          // Double-sends are not (lead gets spammed, trust is lost).
+          processed.add(String(uid));
+          saveProcessed(processed); // write to disk immediately — crash-safe
+          let msg;
+          try { msg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true }); }
+          catch(e) { continue; } // already marked processed above — safe to skip
+          if (!msg) continue;
+          let text = '', from = '', subject = '';
+          try {
+            const parsed = await simpleParser(msg.source);
+            text = (parsed.text || '').slice(0, 1500);
+            from = (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) || '';
+            subject = parsed.subject || '';
+          } catch (e) {
+            from = (msg.envelope && msg.envelope.from && msg.envelope.from[0] && msg.envelope.from[0].address) || '';
+            subject = (msg.envelope && msg.envelope.subject) || '';
+          }
+          out.push({ uid: uid, from: from, subject: subject, text: text });
+        }
+      } finally {
+        saveProcessed(processed); // final safety flush before disconnect
+        lock.release();
+        await client.logout();
+      }
+      return out;
+    }
+
+    // ── HubSpot CRM (best-effort REST mirror) ────────────────────────────────
+    // Reads credentials from PVC per-call (no restart needed when token changes).
+    // Tracks lead.hubspotId so repeated syncs PATCH instead of creating duplicates.
+    async function hubspotUpsertContact(lead) {
+      let c = null;
+      try { c = JSON.parse(fs.readFileSync(path.join(STATE_DIR, 'hubspot-creds.json'), 'utf8')); } catch (e) { return null; }
+      if (!c || !c.accessToken || !lead.email) return null;
+      const base = (c.apiBase || 'https://api.hubapi.com').replace(/\/+$/, '');
+      const H = { authorization: 'Bearer ' + c.accessToken, 'content-type': 'application/json' };
+      const parts = (lead.name || '').trim().split(/\s+/);
+      const props = { email: lead.email, firstname: parts.shift() || '', lastname: parts.join(' ') };
+      if (lead.company) props.company = String(lead.company).slice(0, 100);
+      try {
+        let r = await fetch(base + '/crm/v3/objects/contacts', { method: 'POST', headers: H, body: JSON.stringify({ properties: props }) });
+        if (r.status === 409) r = await fetch(base + '/crm/v3/objects/contacts/' + encodeURIComponent(lead.email) + '?idProperty=email', { method: 'PATCH', headers: H, body: JSON.stringify({ properties: props }) });
+        if (!r.ok) { log('hubspot', 'sync HTTP ' + r.status); return null; }
+        const j = await r.json();
+        if (j && j.id) { lead.hubspotId = j.id; log('hubspot', 'contact upserted id=' + j.id); }
+        return (j && j.id) || null;
+      } catch (e) { log('hubspot', 'sync failed: ' + e.message); return null; }
+    }
+
+    // ── Telegram approval notifications ──────────────────────────────────────
+    // If TELEGRAM_APPROVAL_CHAT_ID is not set, auto-discovers it from the first
+    // person who messaged the bot via getUpdates. Cached in state.json.
+    let _cachedChatId = process.env.TELEGRAM_APPROVAL_CHAT_ID || '';
+    async function resolveChat(token) {
+      if (_cachedChatId) return _cachedChatId;
+      try {
+        const s = loadState();
+        if (s._telegramChatId) { _cachedChatId = s._telegramChatId; return _cachedChatId; }
+        const r = await fetch('https://api.telegram.org/bot' + token + '/getUpdates?limit=1&allowed_updates=message');
+        const j = await r.json();
+        const updates = (j && j.result) || [];
+        if (updates.length > 0) {
+          const id = String(updates[0].message.chat.id);
+          _cachedChatId = id;
+          const s2 = loadState(); s2._telegramChatId = id; saveState(s2);
+          log('telegram', 'auto-discovered approval chat_id=' + id);
+        }
+      } catch (e) { log('telegram', 'chat resolve failed: ' + e.message); }
+      return _cachedChatId;
+    }
+    async function telegramNotify(text) {
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      if ((token || '').length < 10) { log('telegram', 'bot token not set — skipping notification'); return false; }
+      const chat = await resolveChat(token);
+      if (!chat) { log('telegram', 'no chat yet — owner must message the bot once:\n' + text); return false; }
+      try {
+        const r = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: chat, text: text })
+        });
+        return r.ok;
+      } catch (e) { log('telegram', 'notify failed: ' + e.message); return false; }
+    }
+
+    module.exports = {
+      log: log, loadState: loadState, saveState: saveState, findLeadByEmail: findLeadByEmail,
+      getSentToday: getSentToday, incSentToday: incSentToday, maxEmailsPerDay: maxEmailsPerDay,
+      autoOutreach: autoOutreach, autoReply: autoReply, scoreThreshold: scoreThreshold, followUpDays: followUpDays,
+      callLLM: callLLM, extractJson: extractJson,
+      sendEmail: sendEmail, fetchUnseen: fetchUnseen,
+      hubspotUpsertContact: hubspotUpsertContact, telegramNotify: telegramNotify
+    };
+
+  reply-handler.js: |
+    'use strict';
+    // Loop 3 — Reply Handling. Polls Gmail for unseen replies, classifies intent with
+    // the LLM, then either auto-sends a reply or queues for human approval via Telegram.
+    // Escalation conditions (discount, legal, high-intent, hostile) always fire a Telegram
+    // alert to the operator regardless of autoReply setting.
+    // Double-reply prevention: UID-based tracking in imap-processed.json (via fetchUnseen)
+    // ensures each email is processed exactly once across restarts.
+    const fs = require('fs');
+    const path = require('path');
+    const L = require('./lib');
+
+    const INBOX_FILE = path.join(process.env.STATE_DIR || '/home/node/.openclaw', 'inbox.json');
+
+    function loadInbox() {
+      try { return JSON.parse(fs.readFileSync(INBOX_FILE, 'utf8')); } catch(e) {}
+      return { unread: [], read: [] };
+    }
+    function saveInbox(inbox) {
+      try { fs.writeFileSync(INBOX_FILE, JSON.stringify(inbox, null, 2)); } catch(e) {}
+    }
+    function pushInbox(m, lead, intent) {
+      const inbox = loadInbox();
+      inbox.unread.push({
+        id: m.uid || String(Date.now()),
+        from: m.from,
+        leadName: lead.name || m.from,
+        subject: m.subject || '(no subject)',
+        snippet: (m.text || '').slice(0, 300),
+        receivedAt: new Date().toISOString(),
+        intent: intent
+      });
+      saveInbox(inbox);
+    }
+
+    const SDR = process.env.SDR_NAME || 'Alex';
+    const COMPANY = process.env.COMPANY_NAME || '';
+
+    // Classifier detects intent AND escalation signals in one LLM call.
+    const CLASSIFY_SYSTEM =
+      'You are an email triage classifier for a B2B sales rep. Read the inbound email and ' +
+      'return ONLY a JSON object with these fields:\n' +
+      '  intent: "positive"|"objection"|"not_interested"|"follow_up_later"|"question"|"unsubscribe"\n' +
+      '  summary: one sentence describing the email\n' +
+      '  confidence: 0-100\n' +
+      '  escalate: null | "discount" | "pricing" | "legal" | "high_intent" | "hostile"\n' +
+      '    - "discount": lead is asking for any discount or price reduction\n' +
+      '    - "pricing": lead is asking about price, cost, or budget\n' +
+      '    - "legal": lead mentions contract, compliance, NDA, legal, GDPR, security audit\n' +
+      '    - "high_intent": lead says they are ready to buy, sign, or proceed now\n' +
+      '    - "hostile": lead is aggressive, threatening, or using abusive language\n' +
+      '  discount_pct: null | number (extract discount % if mentioned, e.g. 15 for "15%")\n' +
+      'No prose, just JSON.';
+
+    function replySystem(escalateType) {
+      const base = 'You are ' + SDR + ', a human B2B sales rep' + (COMPANY ? ' at ' + COMPANY : '') + '. ' +
+        'Write a concise, warm, consultative reply (under 120 words). Never reveal you are an AI. Sign off as ' + SDR + '. Return ONLY the email body text.';
+      if (escalateType === 'discount' || escalateType === 'pricing') {
+        return base + ' The lead is asking about pricing or a discount. Do NOT commit to any specific discount. Say you will check with your team and get back to them within 24 hours. Keep it warm and positive.';
+      }
+      if (escalateType === 'legal') {
+        return base + ' The lead has a legal or compliance question. Say you will loop in the relevant team and follow up shortly. Do not answer legal questions yourself.';
+      }
+      if (escalateType === 'hostile') {
+        return base + ' The lead seems frustrated or upset. Respond with empathy, acknowledge their concern, and offer to help resolve the issue.';
+      }
+      return base + ' One clear ask at the end.';
+    }
+
+    // Severity mapping for Telegram alert.
+    function escalateSeverity(type) {
+      if (type === 'hostile' || type === 'legal') return 'P0';
+      if (type === 'discount' || type === 'pricing' || type === 'high_intent') return 'P1';
+      return 'P2';
+    }
+    function escalateIcon(sev) {
+      return sev === 'P0' ? '🚨' : sev === 'P1' ? '⚠️' : 'ℹ️';
+    }
+
+    async function run() {
+      if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+        L.log('reply', 'Gmail not configured — skipping reply poll'); return;
+      }
+      let messages = [];
+      try { messages = await L.fetchUnseen(20); }
+      catch (e) { L.log('reply', 'IMAP poll failed: ' + e.message); return; }
+      if (!messages.length) { L.log('reply', 'no new replies'); return; }
+      L.log('reply', 'processing ' + messages.length + ' inbound message(s)');
+
+      const state = L.loadState();
+      for (const m of messages) {
+        if (!m.from) continue;
+        let lead = L.findLeadByEmail(state, m.from);
+        if (!lead) {
+          lead = { name: m.from.split('@')[0], email: m.from, company: '', score: null,
+            stage: 'inbound', channel: 'email-inbound', createdAt: new Date().toISOString(),
+            contactedAt: null, followUpsSent: 0, replied: true, history: [] };
+          state.leads.push(lead);
+        }
+        lead.replied = true;
+        lead.history.push({ dir: 'in', at: new Date().toISOString(), subject: m.subject, snippet: (m.text || '').slice(0, 200) });
+
+        const cls = L.extractJson(await L.callLLM(CLASSIFY_SYSTEM, 'Subject: ' + m.subject + '\n\n' + m.text)) || { intent: 'question', confidence: 0, escalate: null };
+        lead.lastIntent = cls.intent;
+        const escType = cls.escalate || null;
+        L.log('reply', m.from + ' → intent=' + cls.intent + ' escalate=' + (escType || 'none') + ' conf=' + (cls.confidence || 0));
+        pushInbox(m, lead, cls.intent);
+
+        if (cls.intent === 'unsubscribe' || cls.intent === 'not_interested') {
+          lead.stage = 'closed-lost';
+          await L.hubspotUpsertContact(lead);
+          continue;
+        }
+
+        // Always notify operator for escalation conditions — even when autoReply=true.
+        if (escType) {
+          const sev = escalateSeverity(escType);
+          const icon = escalateIcon(sev);
+          const discountNote = cls.discount_pct ? ' (' + cls.discount_pct + '% requested)' : '';
+          const alertLines = [
+            icon + ' ' + sev + ' — Lead email needs attention',
+            'From: ' + m.from + (lead.name ? ' (' + lead.name + ')' : ''),
+            'Trigger: ' + escType + discountNote,
+            'Summary: ' + (cls.summary || m.text.slice(0, 120)),
+            'Subject: ' + (m.subject || ''),
+          ];
+          await L.telegramNotify(alertLines.join('\n'));
+          L.log('reply', 'escalation alert sent to operator: ' + escType + ' from ' + m.from);
+        }
+
+        const draft = await L.callLLM(replySystem(escType),
+          'The lead (' + (lead.name || 'there') + ') wrote:\n"' + m.text + '"\n\nIntent: ' + cls.intent + '. Write your reply.');
+        if (!draft) { L.log('reply', 'no draft generated for ' + m.from); continue; }
+
+        const subject = 'Re: ' + (m.subject || 'our conversation');
+        const ambiguous = (cls.confidence || 0) < 60 || cls.intent === 'objection';
+
+        // Always queue for human approval — operator reviews and sends manually.
+        await L.telegramNotify('[APPROVAL NEEDED] Reply to ' + m.from + ' (intent: ' + cls.intent + ')\n\nSubject: ' + subject + '\n\n' + draft);
+        lead.stage = 'awaiting-approval';
+        lead.pendingDraft = { to: m.from, subject: subject, body: draft };
+        await L.hubspotUpsertContact(lead);
+      }
+      L.saveState(state);
+    }
+
+    module.exports = { run: run };
+    if (require.main === module) run().catch(function (e) { L.log('reply', 'fatal: ' + e.message); });
+
+  follow-up.js: |
+    'use strict';
+    // Loop 4 — Follow-up Scheduler. For leads contacted but not yet replied, sends the
+    // next follow-up at the configured day offsets (e.g. 2, 5, 10). Stops the moment a
+    // reply is recorded (reply-handler sets lead.replied=true). Last step is a breakup email.
+    const L = require('./lib');
+
+    const SDR = process.env.SDR_NAME || 'Alex';
+    const COMPANY = process.env.COMPANY_NAME || '';
+
+    function daysSince(iso) {
+      if (!iso) return 0;
+      return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    }
+
+    function followUpSystem(step, isBreakup) {
+      return 'You are ' + SDR + ', a human B2B sales rep' + (COMPANY ? ' at ' + COMPANY : '') + '. ' +
+        'Write follow-up #' + step + ' to a lead who has not replied. ' +
+        (isBreakup
+          ? 'This is the final breakup email — polite, low-pressure, leaves the door open. '
+          : 'Add a new angle or value, do not just "bump". ') +
+        'Under 90 words. Subject must be specific, never "Following up". ' +
+        'Return ONLY JSON: {"subject":"...","body":"..."}. Sign off as ' + SDR + '.';
+    }
+
+    async function run() {
+      if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+        L.log('followup', 'Gmail not configured — skipping'); return;
+      }
+      const days = L.followUpDays();
+      if (!days.length) { L.log('followup', 'no follow-up cadence configured'); return; }
+
+      const state = L.loadState();
+      let sent = 0;
+      for (const lead of state.leads) {
+        if (lead.replied) continue;
+        if (!lead.email || !lead.contactedAt) continue;
+        if (['closed-lost', 'closed-won', 'awaiting-approval'].indexOf(lead.stage) >= 0) continue;
+        const sentCount = lead.followUpsSent || 0;
+        if (sentCount >= days.length) continue; // sequence exhausted
+
+        // Cadence offsets are cumulative days from FIRST contact (e.g. day 2, 5, 10),
+        // not gaps between follow-ups — so always measure from contactedAt.
+        const dueAfter = days[sentCount];
+        if (daysSince(lead.contactedAt) < dueAfter) continue;
+
+        if (L.getSentToday() >= L.maxEmailsPerDay()) { L.log('followup', 'daily cap reached'); break; }
+
+        const isBreakup = (sentCount === days.length - 1);
+        const out = L.extractJson(await L.callLLM(followUpSystem(sentCount + 1, isBreakup),
+          'Lead: ' + (lead.name || 'there') + (lead.company ? ' at ' + lead.company : '') +
+          '. Their original need: ' + (lead.need || 'unknown') + '. Write the follow-up.'));
+        if (!out || !out.body) { L.log('followup', 'no draft for ' + lead.email); continue; }
+        const subject = out.subject || 'A quick thought for you';
+
+        if (L.autoOutreach()) {
+          try {
+            await L.sendEmail(lead.email, subject, out.body);
+            L.incSentToday(1); sent++;
+            lead.followUpsSent = sentCount + 1;
+            lead.lastTouchAt = new Date().toISOString();
+            lead.stage = isBreakup ? 'closed-stale' : 'nurturing';
+            lead.history = lead.history || [];
+            lead.history.push({ dir: 'out', at: lead.lastTouchAt, subject: subject, snippet: out.body.slice(0, 200) });
+            L.log('followup', 'sent follow-up #' + (sentCount + 1) + ' to ' + lead.email);
+            await L.hubspotUpsertContact(lead);
+          } catch (e) { L.log('followup', 'send failed for ' + lead.email + ': ' + e.message); }
+        } else {
+          await L.telegramNotify('[APPROVAL NEEDED] Follow-up #' + (sentCount + 1) + ' to ' + lead.email +
+            '\n\nSubject: ' + subject + '\n\n' + out.body);
+          lead.stage = 'awaiting-approval';
+          lead.pendingDraft = { to: lead.email, subject: subject, body: out.body };
+        }
+      }
+      L.saveState(state);
+      L.log('followup', 'pass complete — ' + sent + ' follow-up(s) sent');
+    }
+
+    module.exports = { run: run };
+    if (require.main === module) run().catch(function (e) { L.log('followup', 'fatal: ' + e.message); });
+
+  enrich-score.js: |
+    'use strict';
+    // Loop 1 (enrichment) + Loop 2 (auto-outreach trigger). For unscored leads:
+    // optionally enrich via Jina AI, score 0-100 on ICP fit with the LLM, write the
+    // score back to state + CRM. If score >= threshold and autoOutreach, fire the first
+    // personalized outreach email and start the follow-up clock.
+    const L = require('./lib');
+
+    const SDR = process.env.SDR_NAME || 'Alex';
+    const COMPANY = process.env.COMPANY_NAME || '';
+
+    const SCORE_SYSTEM =
+      'You are a B2B lead qualification engine. Given a lead, return ONLY JSON: ' +
+      '{"score":0-100,"reason":"one sentence","icp_fit":"high|medium|low"}. ' +
+      'Score on budget signals, decision authority, urgency, and fit. No prose.';
+
+    function outreachSystem() {
+      return 'You are ' + SDR + ', a human B2B sales rep' + (COMPANY ? ' at ' + COMPANY : '') + '. ' +
+        'Write a first cold outreach email. Personalized, specific to their context, under 100 words, ' +
+        'one clear low-friction ask. Subject must be specific (never "Quick question" or "Following up"). ' +
+        'Never reveal you are an AI. Return ONLY JSON: {"subject":"...","body":"..."}. Sign off as ' + SDR + '.';
+    }
+
+    async function enrich(lead) {
+      const key = process.env.JINA_AI_KEY;
+      if ((key || '').length < 10 || !lead.company) return '';
+      try {
+        // Jina Reader: fetch a quick public snapshot of the company's site/news.
+        const q = encodeURIComponent(lead.company + ' company overview');
+        const r = await fetch('https://s.jina.ai/' + q, { headers: { authorization: 'Bearer ' + key, 'X-Respond-With': 'no-content' } });
+        if (!r.ok) return '';
+        const t = await r.text();
+        return (t || '').slice(0, 1200);
+      } catch (e) { L.log('enrich', 'jina failed: ' + e.message); return ''; }
+    }
+
+    async function run() {
+      const state = L.loadState();
+      let scored = 0, contacted = 0;
+      for (const lead of state.leads) {
+        // ── Score (only if not yet scored) ──────────────────────────────────
+        let context = lead.enrichment || '';
+        if (lead.score == null) {
+          context = await enrich(lead);
+          if (context) lead.enrichment = context.slice(0, 400);
+          const sc = L.extractJson(await L.callLLM(SCORE_SYSTEM,
+            'Lead: ' + (lead.name || 'unknown') + (lead.company ? ' at ' + lead.company : '') +
+            '. Need: ' + (lead.need || 'unknown') + '. Budget: ' + (lead.budget || 'unknown') +
+            '. Timeline: ' + (lead.timeline || 'unknown') +
+            (context ? '. Company context: ' + context : '') + '.'));
+          if (!sc || sc.score == null) { L.log('enrich', 'no score for ' + (lead.email || lead.name)); continue; }
+          lead.score = sc.score;
+          lead.scoreReason = sc.reason || '';
+          lead.stage = lead.stage || 'scored';
+          scored++;
+          L.log('enrich', (lead.email || lead.name) + ' scored ' + lead.score + ' (' + (sc.icp_fit || '?') + ')');
+          await L.hubspotUpsertContact(lead);
+        }
+
+        // ── First outreach (independent of whether scoring ran this pass, so leads
+        //    deferred earlier by the daily cap or a transient error get picked up) ──
+        const eligible = lead.score >= L.scoreThreshold() && lead.email && !lead.contactedAt
+          && lead.stage !== 'awaiting-approval' && !lead.pendingDraft;
+        if (!eligible) continue;
+        if (L.getSentToday() >= L.maxEmailsPerDay()) { L.log('enrich', 'daily cap reached — deferring outreach'); continue; }
+
+        const out = L.extractJson(await L.callLLM(outreachSystem(),
+          'Lead: ' + (lead.name || 'there') + (lead.company ? ' at ' + lead.company : '') +
+          '. Need: ' + (lead.need || 'unknown') + (context ? '. Context: ' + context : '') + '. Write the first email.'));
+        if (!out || !out.body) continue;
+        const subject = out.subject || 'An idea for ' + (lead.company || 'your team');
+
+        if (L.autoOutreach()) {
+          try {
+            await L.sendEmail(lead.email, subject, out.body);
+            L.incSentToday(1); contacted++;
+            lead.contactedAt = new Date().toISOString();
+            lead.lastTouchAt = lead.contactedAt;
+            lead.stage = 'contacted';
+            lead.followUpsSent = 0;
+            lead.history = lead.history || [];
+            lead.history.push({ dir: 'out', at: lead.contactedAt, subject: subject, snippet: out.body.slice(0, 200) });
+            L.log('enrich', 'first outreach sent to ' + lead.email);
+            await L.hubspotUpsertContact(lead);
+          } catch (e) { L.log('enrich', 'outreach send failed: ' + e.message); }
+        } else {
+          await L.telegramNotify('[DRAFT — autoOutreach off] First outreach to ' + lead.email + ' (score ' + lead.score + ')' +
+            '\n\nSubject: ' + subject + '\n\n' + out.body);
+          lead.stage = 'awaiting-approval';
+          lead.pendingDraft = { to: lead.email, subject: subject, body: out.body };
+        }
+      }
+      L.saveState(state);
+      L.log('enrich', 'pass complete — ' + scored + ' scored, ' + contacted + ' contacted');
+    }
+
+    module.exports = { run: run };
+    if (require.main === module) run().catch(function (e) { L.log('enrich', 'fatal: ' + e.message); });
+
+  crm-sync.js: |
+    'use strict';
+    // Bridge between the interactive lane and the autonomous lane. The SDR agent calls
+    // this after qualifying a lead (see AGENTS.md) to register it into local state +
+    // Twenty CRM. Usage: node /automation/crm-sync.js add '<LEAD_SUMMARY json>'
+    const L = require('./lib');
+
+    const BAND = { hot: 85, warm: 60, cold: 30 };
+
+    async function add(raw) {
+      const data = L.extractJson(raw) || (function () { try { return JSON.parse(raw); } catch (e) { return null; } })();
+      if (!data) { L.log('crm-sync', 'could not parse lead JSON'); process.exit(1); }
+
+      const state = L.loadState();
+      const email = (data.email && data.email !== 'unknown') ? data.email : '';
+      let lead = email ? L.findLeadByEmail(state, email) : null;
+      const now = new Date().toISOString();
+
+      let score = null;
+      if (typeof data.score === 'number') score = data.score;
+      else if (typeof data.score === 'string' && BAND[data.score.toLowerCase()] != null) score = BAND[data.score.toLowerCase()];
+
+      if (lead) {
+        lead.name = data.name || lead.name;
+        lead.company = (data.company && data.company !== 'unknown') ? data.company : lead.company;
+        if (score != null) lead.score = score;
+        lead.need = (data.need && data.need !== 'unknown') ? data.need : lead.need;
+        lead.budget = data.budget; lead.timeline = data.timeline;
+        lead.nextAction = data.next_action;
+      } else {
+        lead = {
+          name: data.name || (email ? email.split('@')[0] : 'Unknown Lead'),
+          email: email, company: (data.company && data.company !== 'unknown') ? data.company : '',
+          score: score, scoreReason: 'agent-qualified',
+          stage: 'scored', channel: data.channel || 'agent',
+          need: (data.need && data.need !== 'unknown') ? data.need : '',
+          budget: data.budget, timeline: data.timeline, nextAction: data.next_action,
+          createdAt: now, contactedAt: null, lastTouchAt: null,
+          followUpsSent: 0, replied: false, history: []
+        };
+        state.leads.push(lead);
+      }
+      L.saveState(state);
+      const id = await L.hubspotUpsertContact(lead);
+      L.log('crm-sync', 'lead registered: ' + (lead.email || lead.name) + ' score=' + lead.score + ' hubspotId=' + (id || 'n/a'));
+    }
+
+    const cmd = process.argv[2], arg = process.argv.slice(3).join(' ');
+    if (cmd === 'add' && arg) add(arg).catch(function (e) { L.log('crm-sync', 'fatal: ' + e.message); process.exit(1); });
+    else { console.error('Usage: crm-sync.js add \'<lead json>\''); process.exit(1); }
+
+  scheduler.js: |
+    'use strict';
+    // Phase 2 autonomous scheduler. Runs as a sidecar in the openclaw pod. Drives the
+    // background loops on timers (same proven setInterval pattern as the ingress-patcher
+    // sidecar). Each loop is fault-isolated — one failing never stops the others.
+    const L = require('./lib');
+    const replyHandler = require('./reply-handler');
+    const followUp = require('./follow-up');
+    const enrichScore = require('./enrich-score');
+
+    const ENABLED = (process.env.OUTREACH_ENABLED || 'true') === 'true';
+    const POLL_MIN = Math.max(5, parseInt(process.env.OUTREACH_REPLY_POLL_MINUTES || '15', 10) || 15);
+    const PROSPECTING = (process.env.OUTREACH_PROSPECTING_ENABLED || 'true') === 'true';
+
+    let dailyRan = '';
+
+    async function safe(name, fn) {
+      try { await fn(); } catch (e) { L.log('sched', name + ' error: ' + e.message); }
+    }
+
+    async function tick() {
+      // Reply handling runs every poll interval.
+      await safe('reply', replyHandler.run);
+
+      // Daily pass: enrichment/scoring + follow-up cadence, once per calendar day.
+      const today = new Date().toISOString().slice(0, 10);
+      if (today !== dailyRan) {
+        dailyRan = today;
+        L.log('sched', 'running daily pass for ' + today);
+        if (PROSPECTING) await safe('enrich', enrichScore.run);
+        await safe('followup', followUp.run);
+      }
+    }
+
+    function start() {
+      if (!ENABLED) { L.log('sched', 'outreach disabled (outreach.enabled=false) — sidecar idle'); setInterval(function () {}, 2147483647); return; }
+      L.log('sched', 'autonomous scheduler started — reply poll every ' + POLL_MIN + ' min, daily enrichment+follow-up' +
+        ' | autoOutreach=' + L.autoOutreach() + ' threshold=' + L.scoreThreshold() + ' cadence=[' + L.followUpDays().join(',') + ']');
+      setTimeout(function () {
+        tick();
+        setInterval(tick, POLL_MIN * 60 * 1000);
+      }, 5000);
+    }
+
+    start();
+

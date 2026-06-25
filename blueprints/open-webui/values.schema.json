@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["webui"],
+  "properties": {
+    "e2e": {
+      "type": "object",
+      "properties": {
+        "bearerToken": { "type": "string" },
+        "projectNamespace": { "type": "string" }
+      }
+    },
+    "webui": {
+      "type": "object",
+      "required": ["adminEmail"],
+      "properties": {
+        "adminEmail": {
+          "type": "string",
+          "description": "Email address that becomes admin on first login"
+        },
+        "storage": {
+          "type": "object",
+          "properties": {
+            "size": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

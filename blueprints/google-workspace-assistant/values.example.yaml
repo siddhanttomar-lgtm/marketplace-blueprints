@@ -1,0 +1,18 @@
+# Example values for Google Workspace Assistant
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+openclaw:
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  googleClientId: "YOUR-GOOGLE-CLIENT-ID.apps.googleusercontent.com"
+  googleClientSecret: "YOUR-GOOGLE-CLIENT-SECRET"
+  googleRefreshToken: "YOUR-GOOGLE-REFRESH-TOKEN"
+  gmailAddress: "you@gmail.com"
+  gmailSendName: "Assistant"
+  # Optional: E2E TIR bearer token (can also be set in the UI after first login)
+  e2eBearerToken: ""
+  # Optional: Google Cloud Translation API key
+  googleTranslateKey: ""
+
+# Optional: Telegram bot integration
+telegram:
+  botToken: ""

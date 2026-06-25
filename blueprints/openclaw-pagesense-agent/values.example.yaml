@@ -1,0 +1,23 @@
+# Example values for OpenClaw PageSense Analyst
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+openclaw:
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  # Optional: E2E TIR bearer token (can also be set in the UI after first login)
+  e2eBearerToken: ""
+  # Optional: Gmail for scheduled email reports
+  gmailUser: ""
+  gmailAppPassword: ""
+
+zoho:
+  clientId: "YOUR-ZOHO-CLIENT-ID"
+  clientSecret: "YOUR-ZOHO-CLIENT-SECRET"
+  refreshToken: "YOUR-ZOHO-REFRESH-TOKEN"
+  portalName: "your-portal-name"
+  projectLinkName: "your-project-link-name"
+  # Zoho data-center region: com (US/global), eu, in, com.au, jp
+  region: "com"
+
+# Optional: Telegram bot integration
+telegram:
+  botToken: ""

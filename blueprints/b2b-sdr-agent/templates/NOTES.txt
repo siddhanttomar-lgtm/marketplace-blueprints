@@ -1,0 +1,82 @@
+B2B SDR Agent deployed!
+
+⏳ First boot takes 2-3 min: OpenClaw startup + workspace initialization
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS YOUR SDR AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw Control UI:
+  → Accessible at the URL shown in your E2E Marketplace dashboard
+  → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — CONNECT YOUR MESSAGING CHANNEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+In OpenClaw Control UI → Channels:
+  • Telegram: paste your @BotFather token
+  • WhatsApp: enter Business API credentials
+  • Slack: add your bot token
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — HUBSPOT CRM INTEGRATION (optional)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.integrations.hubspot.accessToken }}
+
+  ✓ HubSpot token detected — CRM sync is active.
+{{- else }}
+
+  HubSpot is not configured. To enable CRM sync, either:
+
+  A) Set at deploy time:
+       --set integrations.hubspot.accessToken=pat-na1-...
+
+  B) Set at chat time (no restart needed):
+       In the OpenClaw chat, run:
+       node /home/node/.openclaw/workspace/save-hubspot-creds.js pat-na1-...
+
+  To get your token:
+    HubSpot → Settings → Integrations → Private Apps → Create app
+    Required scopes: crm.objects.contacts.read + crm.objects.contacts.write
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW THE SDR PIPELINE WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+INTERACTIVE LANE (chat)
+1. Lead messages your Telegram bot / web chat
+2. {{ .Values.openclaw.sdrName }} qualifies them with BANT questions
+3. The agent auto-registers the lead and optionally syncs to HubSpot
+
+AUTONOMOUS LANE (background)
+  • Scoring: each new lead is enriched + scored 0-100 on ICP fit
+  • Auto-outreach: leads scoring >= {{ .Values.outreach.leadScoreThreshold }} get a personalized first email
+  • Reply handling: inbound replies polled every {{ .Values.outreach.replyPollMinutes }} min, intent-classified, answered
+  • Follow-ups: day {{ .Values.outreach.followUpDays }} sequence, auto-stops on reply
+  • Guardrail: {{- if .Values.outreach.autoOutreachEnabled }} AUTO-SEND ON — emails send without review {{- else }} AUTO-SEND OFF — drafts go to Telegram for approval first {{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TURNING THE AUTONOMOUS LOOPS ON
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Gmail: openclaw.gmailUser + openclaw.gmailAppPassword  (powers send + reply polling)
+
+  Gmail needs IMAP enabled (Gmail → Settings → Forwarding and POP/IMAP → Enable IMAP)
+  and a 16-char App Password (myaccount.google.com/apppasswords), NOT your login password.
+{{- if and .Values.openclaw.gmailUser .Values.openclaw.gmailAppPassword }}
+  ✓ Gmail creds detected — send + reply polling are armed.
+{{- else }}
+  ⚠ Gmail creds not set yet — reply polling + outbound stay idle until you add them.
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw not responding after 3 min:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
+
+Automation scheduler logs:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c automation -n {{ .Release.Namespace }}

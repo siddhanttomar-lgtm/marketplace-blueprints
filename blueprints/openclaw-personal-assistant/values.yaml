@@ -1,0 +1,48 @@
+image:
+  repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
+  tag: slim
+  pullPolicy: IfNotPresent
+
+gateway:
+  # Access token for this OpenClaw instance — change before going live.
+  token: "ChangeMe@Gateway123"
+
+# Gateway pod resources. Kept on a NESTED path (openclaw.resources) on purpose:
+# the platform injects the SKU size into the top-level `.Values.resources`, which
+# this pod does NOT read — so the gateway stays fixed-size and always fits the
+# tenant ResourceQuota alongside the sidecars (mirrors ai-pm's behaviour).
+openclaw:
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+e2e:
+  # Default GenAI model. Customer can switch models inside the chat UI.
+  # Full list is built into this chart — no external API call needed.
+  modelName: "gpt_oss_120b"
+  # E2E Networks bearer token for GenAI inference. Get it from:
+  # E2E Console → TIR → API Tokens
+  bearerToken: ""
+
+persistence:
+  size: 2Gi
+  storageClass: ""
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 2Gi
+    cpu: "1"
+
+nodeSelector: {}
+
+# Injected at deploy time by the platform — do not set manually.
+global:
+  platform:
+    tirProjectId: ""

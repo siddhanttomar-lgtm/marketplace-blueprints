@@ -1,0 +1,30 @@
+# Gateway ingress — specific hostname {release}-gw.sslip.io to avoid conflict with dashboard ingress.
+# Wildcard host catches dashboard traffic too, breaking it — use a specific subdomain instead.
+# APISIX returns 404 ("Route Not Found") when no routes are configured; haproxy-check tolerates 4xx.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-gateway-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+  annotations:
+    haproxy.org/check: "true"
+    haproxy.org/backend-config-snippet: |
+      option httpchk GET /
+      http-check expect rstatus (2|4)[0-9][0-9]
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: {{ .Release.Name }}-gw.172-16-230-151.sslip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}
+                port:
+                  number: 80

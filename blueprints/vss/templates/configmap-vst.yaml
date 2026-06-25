@@ -1,0 +1,257 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-postgres-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-postgres
+data:
+  postgresql.conf: |
+    # TCP access — K8s pods cannot use unix socket across pod boundaries
+    listen_addresses = '*'
+    max_connections = 500
+    # Log settings
+    log_destination = 'stderr'
+    logging_collector = off
+    log_min_messages = warning
+    # Performance
+    shared_buffers = 128MB
+    dynamic_shared_memory_type = posix
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-nginx-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-ingress
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      include       /etc/nginx/mime.types;
+      default_type  application/octet-stream;
+      sendfile      on;
+      keepalive_timeout 65;
+      client_max_body_size 0;
+      proxy_request_buffering off;
+
+      # Temp paths writable by non-root nginx
+      client_body_temp_path  /tmp/nginx/client_body;
+      proxy_temp_path        /tmp/nginx/proxy;
+      fastcgi_temp_path      /tmp/nginx/fastcgi;
+      uwsgi_temp_path        /tmp/nginx/uwsgi;
+      scgi_temp_path         /tmp/nginx/scgi;
+
+      server {
+        listen {{ .Values.vst.ingress.port }};
+        server_name _;
+
+        # Sensor API — routed directly to sensor pod (bypasses envoy header routing)
+        location /vst/api/v1/sensor/ {
+          if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "*";
+            return 204;
+          }
+          proxy_hide_header Access-Control-Allow-Origin;
+          proxy_hide_header Access-Control-Allow-Methods;
+          proxy_hide_header Access-Control-Allow-Headers;
+          add_header Access-Control-Allow-Origin "*" always;
+          add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+          add_header Access-Control-Allow-Headers "*" always;
+          rewrite ^/vst(/.*)$ $1 break;
+          proxy_pass http://{{ include "vss.fullname" . }}-vst-sensor:{{ .Values.vst.sensor.port }};
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_read_timeout 300s;
+          proxy_send_timeout 300s;
+        }
+
+        # General VST API — routed through envoy (xDS SDR routing)
+        location /vst/api/v1/ {
+          if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "*";
+            return 204;
+          }
+          proxy_hide_header Access-Control-Allow-Origin;
+          proxy_hide_header Access-Control-Allow-Methods;
+          proxy_hide_header Access-Control-Allow-Headers;
+          add_header Access-Control-Allow-Origin "*" always;
+          add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+          add_header Access-Control-Allow-Headers "*" always;
+          rewrite ^/vst(/.*)$ $1 break;
+          proxy_pass http://{{ include "vss.fullname" . }}-vst-envoy:{{ .Values.vst.envoy.port }};
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_read_timeout 300s;
+          proxy_send_timeout 300s;
+        }
+
+        # Storage API — routed through envoy (xDS SDR routing)
+        location /vst/storage/ {
+          if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "*";
+            return 204;
+          }
+          proxy_hide_header Access-Control-Allow-Origin;
+          proxy_hide_header Access-Control-Allow-Methods;
+          proxy_hide_header Access-Control-Allow-Headers;
+          add_header Access-Control-Allow-Origin "*" always;
+          add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+          add_header Access-Control-Allow-Headers "*" always;
+          rewrite ^/vst(/.*)$ $1 break;
+          proxy_pass http://{{ include "vss.fullname" . }}-vst-envoy:{{ .Values.vst.envoy.port }};
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_read_timeout 300s;
+          proxy_send_timeout 300s;
+        }
+
+        # VST React UI — served from vst-ui alias in NVIDIA ingress container
+        location /vst/ {
+          alias /vst-ui/;
+          try_files $uri $uri/ /vst-ui/index.html;
+        }
+
+        # Health check
+        location /health {
+          return 200 'ok';
+          add_header Content-Type text/plain;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-envoy-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-envoy
+data:
+  envoy.yaml: |
+    node:
+      id: envoy-streamprocessing
+      cluster: envoy-streamprocessing
+
+    dynamic_resources:
+      cds_config:
+        resource_api_version: V3
+        api_config_source:
+          api_type: GRPC
+          transport_api_version: V3
+          grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+          set_node_on_first_message_in_delta_stream: true
+
+      lds_config:
+        resource_api_version: V3
+        api_config_source:
+          api_type: GRPC
+          transport_api_version: V3
+          grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+          set_node_on_first_message_in_delta_stream: true
+
+    static_resources:
+      clusters:
+      - name: xds_cluster
+        type: STRICT_DNS
+        connect_timeout: 5s
+        dns_refresh_rate: 5s
+        load_assignment:
+          cluster_name: xds_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "vss.fullname" . }}-vst-sdr
+                    port_value: {{ .Values.vst.sdr.port }}
+        http2_protocol_options: {}
+        upstream_http_protocol_options:
+          auto_sni: true
+
+      - name: headerless_service
+        type: STRICT_DNS
+        connect_timeout: 5s
+        dns_refresh_rate: 5s
+        load_assignment:
+          cluster_name: headerless_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "vss.fullname" . }}-vst-streamprocessing
+                    port_value: {{ .Values.vst.streamprocessing.port }}
+
+    admin:
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 9901
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sensor-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sensor
+data:
+  vst_config.json: |
+    {
+      "use_centralize_local_db": true,
+      "redis_server_env_var": "{{ include "vss.redisHost" . }}:{{ .Values.redis.port }}",
+      "onvif": {
+        "max_devices_supported": 500,
+        "discovery_timeout": 10
+      },
+      "data": {
+        "nv_streamer_directory_path": "/home/vst/vst_release/vst_data/streamer_videos/"
+      },
+      "storage": {
+        "enabled": false
+      },
+      "recording": {
+        "enabled": false
+      },
+      "rtsp_server": {
+        "enabled": false
+      },
+      "stream_monitoring": {
+        "enabled": true
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss.fullname" . }}-vst-sdr-config
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vst-sdr
+data:
+  cluster_config.json: |
+    {
+      "streamprocessing-ms-1": {
+        "provisioning_address": "{{ include "vss.fullname" . }}-vst-streamprocessing:{{ .Values.vst.streamprocessing.port }}",
+        "process_type": "kubernetes"
+      }
+    }

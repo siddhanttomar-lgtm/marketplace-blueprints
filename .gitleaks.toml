@@ -6,12 +6,18 @@ useDefault = true
 [allowlist]
 description = "Ignore placeholder values and vendored upstream charts"
 paths = [
-  '''values\.example\.yaml$''',
   '''blueprints/[^/]+/charts/''',
 ]
 regexes = [
+  # Generic placeholder patterns used in values.example.yaml and docs
   '''YOUR-[A-Z0-9_-]+''',
   '''examplepass''',
   '''password:\s+password''',
   '''-----BEGIN [A-Z ]+-----\s*\\\s*\n\s*\.\.\.\s*\\\s*\n\s*-----END [A-Z ]+-----''',
+  # Default gateway tokens in values.yaml — obvious placeholders, documented as must-change
+  # Pattern: word chars followed by @ and alphanumerics (e.g. PMAgent@12345, Admin@12345)
+  '''[A-Za-z]+@[A-Za-z0-9]{4,}''',
+  # APISIX default Admin API key MD5 hashes (shipped as must-replace defaults)
+  '''edd1c9f034335f136f87ad84b625c8f1''',
+  '''4054f7cf07e344346cd3f287985e76a2''',
 ]

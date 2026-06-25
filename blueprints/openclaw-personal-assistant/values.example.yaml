@@ -1,0 +1,14 @@
+# Example values for OpenClaw Personal Assistant
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+gateway:
+  token: "YOUR-GATEWAY-TOKEN"
+
+e2e:
+  # E2E TIR API bearer token — get it from E2E Console -> TIR -> API Tokens
+  bearerToken: "YOUR-E2E-TIR-BEARER-TOKEN"
+  # Default GenAI model (can be switched in the UI at any time)
+  modelName: "gpt_oss_120b"
+
+persistence:
+  size: 2Gi

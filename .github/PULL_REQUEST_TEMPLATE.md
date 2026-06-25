@@ -4,15 +4,15 @@
 
 ## Blueprint affected
 
-<!-- e.g. vss, redis, keycloak -->
+<!-- e.g. n8n, apisix, openclaw-devflow -->
 
 ## Checklist
 
-- [ ] `bash scripts/validate.sh` passes locally
+- [ ] `make test` passes locally
+- [ ] `make validate` passes locally
 - [ ] `Chart.yaml` `appVersion` matches the actual upstream software version
 - [ ] `values.example.yaml` has no real credentials, API keys, or IPs
 - [ ] `blueprints/{name}/README.md` is up to date
-- [ ] No internal E2E details (S3 paths, internal IPs, product IDs) included
 
 ## Testing
 

@@ -1,0 +1,71 @@
+{{ .Values.agentName }} {{ .Chart.AppVersion }} deployed.
+
+⏳ First boot: 2-3 minutes
+   - OpenClaw gateway initialises (~1-2 min)
+   - Enabled plugins are fetched via npx on first use (~10-30s each, cached on the PVC)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACCESS YOUR AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OpenClaw Control UI (primary — marketplace URL):
+  → Accessible at the URL shown in your E2E Marketplace dashboard
+{{- if .Values.openclaw.gatewayToken }}
+  → Login with gateway token: {{ .Values.openclaw.gatewayToken }}
+{{- else }}
+  → A gateway token was auto-generated. Find it in your deployment variables in the
+    marketplace dashboard, or run:
+    kubectl get secret {{ .Release.Name }}-credentials -n {{ .Release.Namespace }} -o jsonpath='{.data.OPENCLAW_GATEWAY_TOKEN}' | base64 -d ; echo
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENABLED INTEGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- $any := false }}
+{{- if .Values.plugins.github.enabled }}
+{{- $any = true }}
+  • GitHub      — repos, issues, pull requests, code search
+{{- end }}
+{{- if .Values.plugins.slack.enabled }}
+{{- $any = true }}
+  • Slack       — read channels and post messages
+{{- end }}
+{{- if .Values.plugins.notion.enabled }}
+{{- $any = true }}
+  • Notion      — search, read, and update pages and databases
+{{- end }}
+{{- if .Values.plugins.jira.enabled }}
+{{- $any = true }}
+  • Jira        — search, read, and act on issues
+{{- end }}
+{{- if not $any }}
+  ⚠ No plugins are enabled. Enable at least one (GitHub, Slack,
+    Notion, or Jira) in the deployment settings and redeploy.
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ASK YOUR AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Open the Control UI and ask (depending on which tools are enabled):
+  • "List my open pull requests in acme/web"          (GitHub)
+  • "Create a TODO for this task on the launch page"  (Notion)
+  • "Post a summary of today's deploys to #eng"       (Slack)
+  • "What's blocking PROJ-142?"                        (Jira)
+
+Or run the whole loop in one go:
+  • "Take this task, make a Notion TODO, open a GitHub PR with the
+     change, then reply on #dev when it's done."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Gateway not responding after 3 min:
+  kubectl logs -l app.kubernetes.io/component=openclaw -c gateway -n {{ .Release.Namespace }}
+
+A plugin isn't working:
+  → Confirm the plugin is enabled AND its credentials are set in deployment settings.
+  → Check the init log for the enabled-plugins line:
+    kubectl logs -l app.kubernetes.io/component=openclaw -c init-config -n {{ .Release.Namespace }}
+  → A plugin only loads when BOTH enabled=true AND its credential is non-empty.

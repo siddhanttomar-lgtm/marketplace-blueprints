@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cufolio.fullname" . }}-cufolio
+  labels:
+    {{- include "cufolio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cufolio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cufolio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cufolio
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      runtimeClassName: nvidia
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "cufolio.fullname" . }}-nvcr-pull
+      initContainers:
+        - name: setup
+          image: {{ .Values.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+
+              CUFOLIO_DIR="/workspace/cuFOLIO"
+              VENV_MARKER="/cache/cufolio-venv/.venv-ready"
+
+              if [ ! -d "$CUFOLIO_DIR/.git" ]; then
+                echo "[setup] Cloning cuFOLIO ..."
+                git clone --depth 1 --branch main \
+                  https://github.com/NVIDIA-AI-Blueprints/cuFOLIO "$CUFOLIO_DIR"
+              else
+                echo "[setup] cuFOLIO already cloned — skipping."
+              fi
+
+              if ! command -v uv &>/dev/null; then
+                echo "[setup] Installing uv ..."
+                export UV_CACHE_DIR=/cache/uv
+                curl -LsSf https://astral.sh/uv/install.sh | sh
+                export PATH="$HOME/.cargo/bin:$PATH"
+              fi
+
+              if [ ! -f "$VENV_MARKER" ]; then
+                echo "[setup] Running uv sync ..."
+                cd "$CUFOLIO_DIR"
+                UV_CACHE_DIR=/cache/uv \
+                  uv sync --extra cuda13 --project "$CUFOLIO_DIR" \
+                  --python-preference managed \
+                  --compile-bytecode
+                touch "$VENV_MARKER"
+                echo "[setup] uv sync complete."
+              else
+                echo "[setup] venv ready — skipping uv sync."
+              fi
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cufolio.fullname" . }}-auth
+                  key: NGC_API_KEY
+            - name: HOME
+              value: /root
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: cache
+              mountPath: /cache
+
+      containers:
+        - name: cufolio
+          image: {{ .Values.image }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              export PATH="$HOME/.cargo/bin:$PATH"
+              export UV_CACHE_DIR=/cache/uv
+              CUFOLIO_DIR="/workspace/cuFOLIO"
+
+              cd "$CUFOLIO_DIR"
+
+              echo "[start] Launching Streamlit on port {{ .Values.streamlit.port }} ..."
+              uv run --project "$CUFOLIO_DIR" \
+                streamlit run demo/rebalancing_streamlit_app.py \
+                  --server.port {{ .Values.streamlit.port }} \
+                  --server.address 0.0.0.0 \
+                  --server.headless true \
+                  --browser.gatherUsageStats false &
+
+              echo "[start] Launching Jupyter Lab on port {{ .Values.jupyter.port }} ..."
+              uv run --project "$CUFOLIO_DIR" \
+                jupyter lab \
+                  --no-browser \
+                  --ip=0.0.0.0 \
+                  --port={{ .Values.jupyter.port }} \
+                  --NotebookApp.token="$JUPYTER_TOKEN" \
+                  --NotebookApp.password="" \
+                  --NotebookApp.allow_origin='*' \
+                  --notebook-dir="$CUFOLIO_DIR" &
+
+              wait
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cufolio.fullname" . }}-auth
+                  key: NGC_API_KEY
+            - name: JUPYTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cufolio.fullname" . }}-auth
+                  key: JUPYTER_TOKEN
+            - name: HOME
+              value: /root
+          ports:
+            - containerPort: {{ .Values.streamlit.port }}
+              name: streamlit
+            - containerPort: {{ .Values.jupyter.port }}
+              name: jupyter
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.streamlit.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.streamlit.port }}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: cache
+              mountPath: /cache
+            - name: shm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ include "cufolio.fullname" . }}-data
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ include "cufolio.fullname" . }}-cache
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi

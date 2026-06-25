@@ -1,0 +1,72 @@
+agentName: "PageSense Analyst"
+
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR — manual override fallback for deploys outside the platform.
+e2e:
+  projectNamespace: ""
+  modelName: "gpt_oss_120b"
+
+openclaw:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
+    tag: "slim"
+    pullPolicy: Always
+  storage:
+    size: "5Gi"
+  # REQUIRED: Gateway auth token — change before production
+  gatewayToken: "PageSense@12345"
+  # E2E TIR GenAI bearer token — paste after first launch or pre-fill here
+  e2eBearerToken: ""
+  # Optional: Gmail credentials for scheduled email reports
+  # Use a Gmail App Password (myaccount.google.com/apppasswords) — NOT your regular password
+  gmailUser: ""
+  gmailAppPassword: ""
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+telegram:
+  # Optional — if set, enables a Telegram bot bridged to the PageSense agent.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  botToken: ""
+
+zoho:
+  # Optional: Zoho OAuth credentials for PageSense API access (can be added later).
+  # Create a Self Client at https://api-console.zoho.com/ with scopes:
+  #   PageSense.experiments.READ,PageSense.goals.READ,PageSense.reports.READ,PageSense.audience.READ,PageSense.customevents.READ
+  clientId: ""
+  clientSecret: ""
+  # Long-lived offline refresh token obtained from Zoho OAuth
+  refreshToken: ""
+  # Your PageSense portal name (e.g. "mycompany" from your PageSense dashboard URL)
+  portalName: ""
+  # The project link name shown in the PageSense dashboard URL
+  projectLinkName: ""
+  # Zoho data-center region: com (US/global, default), eu, in, com.au, jp
+  region: "com"
+
+pagesenseMcp:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/pagesense-mcp
+    tag: "1.0.0"
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+persistence:
+  accessMode: ReadWriteOnce
+
+nodeSelector: {}

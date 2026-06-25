@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 1.0.0
+description: Google Workspace Assistant — Manage Gmail, Calendar, Drive, Sheets, and
+  Docs via natural language chat
+name: google-workspace-assistant
+type: application
+version: 1.0.1

@@ -1,0 +1,91 @@
+# Platform-injected at deploy time (helm_activities sets global.platform.tirProjectId = "p-<id>").
+global:
+  platform:
+    tirProjectId: ""
+
+# E2E TIR — manual override fallback for deploys outside the platform.
+e2e:
+  projectNamespace: ""
+  modelName: "gpt_oss_120b"
+
+openclaw:
+  image:
+    repository: registry.e2enetworks.net/marketplace-blueprint/openclaw
+    tag: "slim"
+    pullPolicy: Always
+  storage:
+    size: 5Gi
+  # REQUIRED: Gateway auth token — change before production
+  gatewayToken: "SDRGateway@12345"
+  # E2E TIR GenAI bearer token — paste after first launch or pre-fill here
+  e2eBearerToken: ""
+  # Optional: Gmail credentials for outbound email sending
+  # Use a Gmail App Password (myaccount.google.com/apppasswords) — NOT your regular password
+  gmailUser: ""
+  gmailAppPassword: ""
+  # SDR persona shown in conversations
+  sdrName: "Alex"
+  companyName: ""
+  # Optional: pre-seed company knowledge base. The agent reads this when answering
+  # product questions or drafting emails. Can also be updated later via chat.
+  companyDescription: ""
+  # Optional enrichment APIs
+  jinaAiKey: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+integrations:
+  hubspot:
+    # Optional — HubSpot Private App access token for CRM sync.
+    # Create in HubSpot: Settings → Integrations → Private Apps → Create app.
+    # Required scopes: crm.objects.contacts.read + crm.objects.contacts.write
+    # Token format: pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    # Leave blank to deploy without HubSpot — token can be set later via chat:
+    #   node /home/node/.openclaw/workspace/save-hubspot-creds.js <token>
+    accessToken: ""
+    apiBase: "https://api.hubapi.com"
+
+telegram:
+  # Optional — if set, enables a Telegram bot that bridges to the SDR agent.
+  # Create a bot via @BotFather on Telegram, paste the token here.
+  # Access is pairing-only and secure by default: anyone who DMs the bot is HELD pending
+  # approval (the Telegram user is the operator — leads come in via email). You approve them
+  # from the Control UI by asking the agent to approve the pending request (it uses the
+  # built-in telegram-pairing tool). The bot is never left open to strangers.
+  botToken: ""
+  # Optional — chat ID that receives approval requests for the autonomous loops.
+  # Find yours by messaging the bot then checking https://api.telegram.org/bot<token>/getUpdates
+  # If empty, drafts that need approval are logged instead of pushed to Telegram.
+  approvalChatId: ""
+
+# ─── Phase 2: Autonomous outreach engine ──────────────────────────────────────
+# These drive the background loops (reply handling, follow-ups, enrichment+scoring).
+# The interactive agent (Telegram/web chat) works exactly as in v1 regardless of these.
+# Set Gmail + an LLM key AT LAUNCH — that arms send + reply polling + scoring.
+# twenty.apiKey is optional and set AFTER first boot (Twenty mints it itself); without
+# it the loops still run, they just skip mirroring leads into the CRM.
+outreach:
+  # Master switch for the autonomous scheduler sidecar. If false, only the
+  # interactive agent runs (identical to v1.0.0 behaviour).
+  enabled: true
+  # false = drafts queued for human approval (via Telegram or logs) before sending.
+  # true  = fully autonomous — replies and follow-ups send without human review.
+  autoOutreachEnabled: false
+  # Lead score (0-100) at/above which a lead auto-enters the outreach sequence.
+  # 0 = every lead gets outreach regardless of score.
+  leadScoreThreshold: 0
+  # Follow-up cadence in days after first contact with no reply (CSV of day offsets).
+  followUpDays: "2,5,10"
+  # How often (minutes) to poll Gmail for inbound replies. Min 5.
+  replyPollMinutes: 15
+  # Daily enrichment + scoring pass over new CRM leads (uses Jina AI if openclaw.jinaAiKey set).
+  prospectingEnabled: true
+  # Hard cap on autonomous outbound emails per day (safety guardrail against spam).
+  maxEmailsPerDay: 50
+
+nodeSelector: {}

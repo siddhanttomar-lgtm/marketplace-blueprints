@@ -1,0 +1,26 @@
+{{- if .Values.jupyter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cufolio.fullname" . }}-jupyter
+  labels:
+    {{- include "cufolio.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cufolio
+spec:
+  {{- if .Values.ownGpu }}
+  type: NodePort
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: cufolio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: {{ .Values.jupyter.port }}
+      {{- if .Values.ownGpu }}
+      nodePort: {{ .Values.jupyter.nodePort }}
+      {{- end }}
+{{- end }}

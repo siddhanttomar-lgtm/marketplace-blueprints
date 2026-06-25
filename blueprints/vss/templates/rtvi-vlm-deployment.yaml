@@ -1,0 +1,241 @@
+{{- if .Values.rtviVlm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vss.fullname" . }}-rtvi-vlm
+  labels:
+    {{- include "vss.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rtvi-vlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rtvi-vlm
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rtvi-vlm
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      runtimeClassName: nvidia
+      imagePullSecrets:
+        - name: registry-pull-secret
+        - name: {{ include "vss.fullname" . }}-nvcr-pull
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      # Wait for Cosmos NIM to be ready before starting — rtvi-vlm verifies VLM
+      # connectivity at startup when VLM_MODEL_TO_USE=openai-compat.
+      initContainers:
+        - name: wait-for-cosmos
+          image: registry.e2enetworks.net/marketplace-blueprint/curlimages/curl:8.7.1
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Cosmos NIM at {{ include "vss.vlmBaseUrl" . }}/v1/health/ready..."
+              until curl -sf {{ include "vss.vlmBaseUrl" . }}/v1/health/ready > /dev/null 2>&1; do
+                echo "Cosmos not ready — retrying in 15s..."
+                sleep 15
+              done
+              echo "Cosmos NIM is ready."
+      containers:
+        - name: rtvi-vlm
+          image: {{ .Values.rtviVlm.image }}
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          # Container listens on 8000; K8s Service maps port 8018 → 8000.
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            # ── VLM backend — openai-compat delegates to the in-cluster Cosmos NIM ──────
+            # This avoids downloading a second copy of cosmos-reason2-8b.
+            # rtvi-vlm acts as a streaming wrapper around the shared NIM pod.
+            - name: VLM_MODEL_TO_USE
+              value: "openai-compat"
+            - name: VIA_VLM_ENDPOINT
+              value: {{ include "vss.vlmBaseUrl" . | quote }}
+            - name: VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME
+              value: {{ .Values.nim.cosmos.modelName | quote }}
+            - name: VIA_VLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-nvcr-api
+                  key: NGC_API_KEY
+
+            # ── Auth ───────────────────────────────────────────────────────────
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-nvcr-api
+                  key: NGC_API_KEY
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-nvcr-api
+                  key: NGC_API_KEY
+            - name: OPENAI_API_KEY
+              value: "NOAPIKEYSET"
+
+            # ── GPU ────────────────────────────────────────────────────────────
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: {{ .Values.gpu.deviceIds | default "all" | quote }}
+
+            # ── vLLM settings — only relevant when NOT using openai-compat mode ─
+            # Included so operators can switch mode without losing tuning values.
+            - name: VLLM_MAX_NUM_SEQS
+              value: "256"
+            - name: VLLM_MAX_NUM_BATCHED_TOKENS
+              value: "5120"
+            - name: VLM_MAX_MODEL_LEN
+              value: {{ .Values.rtviVlm.vlmMaxModelLen | default "32768" | quote }}
+            - name: VLLM_NUM_SCHEDULER_STEPS
+              value: "8"
+            - name: VLLM_ENABLE_PREFIX_CACHING
+              value: "true"
+            - name: VLLM_IGNORE_EOS
+              value: "false"
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: "1"
+
+            # ── Kafka ──────────────────────────────────────────────────────────
+            - name: KAFKA_ENABLED
+              value: {{ .Values.kafka.enabled | quote }}
+            {{- if .Values.kafka.enabled }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "vss.kafkaBootstrap" . | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.rtviVlm.kafkaTopic | default "mdx-vlm" | quote }}
+            - name: KAFKA_INCIDENT_TOPIC
+              value: {{ .Values.rtviVlm.kafkaIncidentTopic | default "mdx-vlm-incidents" | quote }}
+            - name: ERROR_MESSAGE_TOPIC
+              value: {{ .Values.rtviVlm.kafkaErrorTopic | default "vision-llm-errors" | quote }}
+            {{- end }}
+
+            # ── Redis ──────────────────────────────────────────────────────────
+            - name: REDIS_HOST
+              value: {{ include "vss.redisHost" . | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: REDIS_DB
+              value: "0"
+            - name: ENABLE_REDIS_ERROR_MESSAGES
+              value: "false"
+
+            # ── Batch processing ───────────────────────────────────────────────
+            - name: VLM_BATCH_SIZE
+              value: {{ .Values.rtviVlm.batchSize | default "1" | quote }}
+            - name: NUM_VLM_PROCS
+              value: {{ .Values.rtviVlm.numVlmProcs | default "1" | quote }}
+            - name: NUM_GPUS
+              value: {{ .Values.rtviVlm.numGpus | default "1" | quote }}
+
+            # ── Input dimensions ───────────────────────────────────────────────
+            - name: VLM_INPUT_WIDTH
+              value: {{ .Values.rtviVlm.inputWidth | default "1312" | quote }}
+            - name: VLM_INPUT_HEIGHT
+              value: {{ .Values.rtviVlm.inputHeight | default "736" | quote }}
+
+            # ── GPU memory management ──────────────────────────────────────────
+            - name: VLLM_GPU_MEMORY_UTILIZATION
+              value: {{ .Values.rtviVlm.gpuMemoryUtilization | default "0.85" | quote }}
+            - name: VLLM_MAX_NUM_SEQS
+              value: {{ .Values.rtviVlm.maxNumSeqs | default "256" | quote }}
+            - name: VLLM_MAX_NUM_BATCHED_TOKENS
+              value: {{ .Values.rtviVlm.maxNumBatchedTokens | default "5120" | quote }}
+            - name: VLLM_ENABLE_PREFIX_CACHING
+              value: {{ .Values.rtviVlm.enablePrefixCaching | default "true" | quote }}
+
+            # ── Video codec support ────────────────────────────────────────────
+            - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
+              value: {{ .Values.rtviVlm.enableCustomParserModifications | default "1" | quote }}
+            - name: INSTALL_PROPRIETARY_CODECS
+              value: {{ .Values.rtviVlm.installProprietaryCodecs | default "false" | quote }}
+            - name: FORCE_SW_AV1_DECODER
+              value: {{ .Values.rtviVlm.forceSwAv1Decoder | default "" | quote }}
+
+            # ── RTSP reconnect ─────────────────────────────────────────────────
+            - name: RTVI_RTSP_LATENCY
+              value: {{ .Values.rtviVlm.rtspLatency | default "" | quote }}
+            - name: RTVI_RTSP_TIMEOUT
+              value: {{ .Values.rtviVlm.rtspTimeout | default "" | quote }}
+            - name: RTVI_RTSP_RECONNECTION_INTERVAL
+              value: {{ .Values.rtviVlm.rtspReconnectionInterval | default "5" | quote }}
+            - name: RTVI_RTSP_RECONNECTION_WINDOW
+              value: "60"
+            - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
+              value: {{ .Values.rtviVlm.rtspReconnectionMaxAttempts | default "10" | quote }}
+
+            # ── Misc ───────────────────────────────────────────────────────────
+            - name: VLM_SYSTEM_PROMPT
+              value: {{ .Values.rtviVlm.systemPrompt | default "" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.rtviVlm.logLevel | default "INFO" | quote }}
+            - name: ENABLE_OTEL_MONITORING
+              value: "false"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss.fullname" . }}-ngc
+                  key: HF_TOKEN
+
+          # openai-compat mode: no local model load; 120s covers GStreamer and codec init.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8000/v1/health/ready"]
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "curl -sf http://localhost:8000/v1/health/ready"]
+            initialDelaySeconds: 300
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+
+          resources:
+            requests:
+              memory: {{ .Values.rtviVlm.resources.requests.memory }}
+              cpu: {{ .Values.rtviVlm.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.rtviVlm.resources.limits.memory }}
+              cpu: {{ .Values.rtviVlm.resources.limits.cpu }}
+              nvidia.com/gpu: {{ .Values.rtviVlm.gpuCount | default 1 | quote }}
+
+          volumeMounts:
+            # Shared memory for GStreamer pipeline and Triton runtime buffers.
+            # Replaces Docker Compose shm_size: 16gb / ipc: host.
+            - name: shm
+              mountPath: /dev/shm
+            # HF and NGC caches are emptyDir in openai-compat mode (no local model).
+            # Mount them so the container startup script doesn't fail on missing paths.
+            - name: hf-cache
+              mountPath: /tmp/huggingface
+            - name: ngc-model-cache
+              mountPath: /opt/nvidia/rtvi/.rtvi/ngc_model_cache
+            # VST clip storage — read access to video clips written by vst-sensor.
+            # subPath exposes vst_data/streamer_videos/ at the path RTVI expects.
+            - name: vst-sensor-data
+              mountPath: /home/vst/vst_release/streamer_videos
+              subPath: streamer_videos
+
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.rtviVlm.shmSize | default "16Gi" }}
+        - name: hf-cache
+          emptyDir: {}
+        - name: ngc-model-cache
+          emptyDir: {}
+        # Shared with vst-sensor — clips land at vst_data/streamer_videos/ inside this PVC
+        - name: vst-sensor-data
+          persistentVolumeClaim:
+            claimName: {{ include "vss.fullname" . }}-vst-sensor-data
+{{- end }}

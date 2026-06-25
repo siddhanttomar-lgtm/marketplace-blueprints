@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-open-webui
+  labels:
+    {{- include "open-webui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "open-webui.webuiSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "open-webui.webuiSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-litellm
+          image: registry.e2enetworks.net/marketplace-blueprint/busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for LiteLLM to be ready..."
+              until nc -z {{ include "open-webui.litellmHost" . }} 4000; do
+                echo "LiteLLM not ready, sleeping 5s..."
+                sleep 5
+              done
+              echo "LiteLLM is ready."
+          resources:
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      containers:
+        - name: open-webui
+          image: "{{ .Values.webui.image.repository }}:{{ .Values.webui.image.tag }}"
+          imagePullPolicy: {{ .Values.webui.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              python3 /scripts/prestart.py
+              exec python3 -m uvicorn open_webui.main:app --host 0.0.0.0 --port 8080 --forwarded-allow-ips '*' --workers 1
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ENABLE_OPENAI_API
+              value: "true"
+            - name: OPENAI_API_BASE_URL
+              value: "http://{{ include "open-webui.litellmHost" . }}:4000/v1"
+            - name: OPENAI_API_KEY
+              value: "sk-litellm"
+            - name: WEBUI_AUTH
+              value: "true"
+            - name: ENABLE_SIGNUP
+              value: "true"
+            - name: DEFAULT_MODELS
+              value: "gpt_oss_120b"
+            - name: PORT
+              value: "8080"
+            - name: WEBUI_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: webui-admin-email
+            - name: WEBUI_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: webui-admin-password
+            - name: WEBUI_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-credentials
+                  key: webui-secret-key
+            - name: DATA_DIR
+              value: /app/backend/data
+            - name: DEFAULT_USER_ROLE
+              value: "user"
+            - name: BYPASS_MODEL_ACCESS_CONTROL
+              value: "true"
+            - name: AUDIO_STT_ENGINE
+              value: "openai"
+            - name: AUDIO_STT_OPENAI_API_BASE_URL
+              value: "http://{{ include "open-webui.whisperHost" . }}:8000/v1"
+            - name: AUDIO_STT_OPENAI_API_KEY
+              value: "sk-whisper"
+            - name: AUDIO_STT_MODEL
+              value: {{ .Values.whisper.model | quote }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - python3
+                  - /scripts/make_models_public.py
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: {{ .Values.webui.resources.requests.cpu }}
+              memory: {{ .Values.webui.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.webui.resources.limits.cpu }}
+              memory: {{ .Values.webui.resources.limits.memory }}
+          volumeMounts:
+            - name: webui-data
+              mountPath: /app/backend/data
+            - name: webui-scripts
+              mountPath: /scripts
+      volumes:
+        - name: webui-data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-webui-data
+        - name: webui-scripts
+          configMap:
+            name: {{ .Release.Name }}-webui-scripts

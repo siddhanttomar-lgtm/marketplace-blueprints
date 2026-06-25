@@ -1,4 +1,4 @@
-.PHONY: lint validate
+.PHONY: lint validate test
 
 # Lint all charts under blueprints/
 lint:
@@ -15,3 +15,6 @@ lint:
 # Lint + template dry-run
 validate:
 	@bash scripts/validate.sh
+
+test:
+	@bash scripts/test-blueprint-tools.sh

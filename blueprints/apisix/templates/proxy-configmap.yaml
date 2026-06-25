@@ -1,0 +1,137 @@
+# Openresty sidecar config — sits in front of dashboard:9001 on port 9000.
+# Fixes two known bugs in apisix-dashboard 3.0.1 (archived, no upstream fix):
+#   1. /apisix/admin/get_key       → missing from binary → SPA HTML → JSON.parse() crash
+#   2. /apisix/admin/plugins/list  → same problem
+# Both crashes cause the Plugin sidebar page to render blank.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-proxy-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+data:
+  nginx.conf: |
+    worker_processes  1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 512;
+    }
+
+    http {
+      access_log off;
+      client_body_temp_path /tmp/client_body;
+      proxy_temp_path       /tmp/proxy_temp;
+      fastcgi_temp_path     /tmp/fastcgi_temp;
+      uwsgi_temp_path       /tmp/uwsgi_temp;
+      scgi_temp_path        /tmp/scgi_temp;
+
+      sendfile on;
+      keepalive_timeout 65;
+      client_max_body_size 10m;
+
+      server {
+        listen 9000 default_server;
+        server_name _;
+
+        # Mock: dashboard binary doesn't implement get_key, falls through to SPA HTML.
+        # Frontend tries JSON.parse() → crash → blank page.
+        location = /apisix/admin/get_key {
+          default_type 'application/json; charset=utf-8';
+          return 200 '{"code":0,"message":"","data":{"key":"{{ .Values.apisix.adminCredentials.admin }}"}}';
+        }
+
+        # Wrap APISIX admin API's raw plugin array in dashboard's expected envelope.
+        # APISIX returns ["plugin1","plugin2"], frontend expects {"code":0,"data":[...]}.
+        location = /apisix/admin/plugins/list {
+          content_by_lua_block {
+            ngx.header.content_type = "application/json; charset=utf-8"
+            local res = ngx.location.capture("/_internal_plugins_list")
+            if res and res.status == 200 and res.body and #res.body > 0 then
+              ngx.say('{"code":0,"message":"","data":' .. res.body .. '}')
+            else
+              ngx.say('{"code":0,"message":"","data":[]}')
+            end
+          }
+        }
+
+        location = /_internal_plugins_list {
+          internal;
+          proxy_pass http://127.0.0.1:9180/apisix/admin/plugins/list;
+          proxy_set_header X-API-KEY "{{ .Values.apisix.adminCredentials.admin }}";
+          proxy_set_header Host "127.0.0.1";
+        }
+
+        # /apisix/admin/plugins?all=true — dashboard proxy returns data:null; frontend crashes.
+        # APISIX returns {pluginName: {schema,...}} (object) but frontend expects [{name:..., ...}] (array).
+        # Fix: proxy to APISIX, transform object→array, wrap in dashboard envelope.
+        location = /apisix/admin/plugins {
+          content_by_lua_block {
+            ngx.header.content_type = "application/json; charset=utf-8"
+            local args = ngx.var.args
+            local capture_uri = "/_internal_plugins"
+            if args and args ~= "" then
+              capture_uri = capture_uri .. "?" .. args
+            end
+            local res = ngx.location.capture(capture_uri)
+            if not res or res.status ~= 200 or not res.body or #res.body == 0 then
+              ngx.say('{"code":0,"message":"","data":[]}')
+              return
+            end
+            local cjson = require "cjson.safe"
+            local plugins_obj = cjson.decode(res.body)
+            if not plugins_obj or type(plugins_obj) ~= "table" then
+              ngx.say('{"code":0,"message":"","data":[]}')
+              return
+            end
+            local plugins_arr = {}
+            for name, info in pairs(plugins_obj) do
+              if type(info) == "table" then
+                info.name = name
+              else
+                info = {name = name}
+              end
+              table.insert(plugins_arr, info)
+            end
+            local result = cjson.encode({code=0, message="", data=plugins_arr})
+            ngx.say(result or '{"code":0,"message":"","data":[]}')
+          }
+        }
+
+        location = /_internal_plugins {
+          internal;
+          proxy_pass http://127.0.0.1:9180/apisix/admin/plugins;
+          proxy_set_header X-API-KEY "{{ .Values.apisix.adminCredentials.admin }}";
+          proxy_set_header Host "127.0.0.1";
+        }
+
+        # Consumers endpoint not implemented by dashboard 3.0.1 — falls through to SPA HTML.
+        # Proxy all consumer CRUD directly to APISIX admin API.
+        location ~ ^/apisix/admin/consumers(/.*)?$ {
+          proxy_pass http://127.0.0.1:9180$request_uri;
+          proxy_set_header X-API-KEY "{{ .Values.apisix.adminCredentials.admin }}";
+          proxy_set_header Host "127.0.0.1";
+          proxy_http_version 1.1;
+          proxy_read_timeout 30s;
+        }
+
+        # Everything else passes through to the dashboard binary.
+        location / {
+          proxy_pass http://127.0.0.1:9001;
+          proxy_http_version 1.1;
+          proxy_set_header Host              $host;
+          proxy_set_header X-Real-IP         $remote_addr;
+          proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header Upgrade           $http_upgrade;
+          proxy_set_header Connection        $http_connection;
+          proxy_read_timeout    300s;
+          proxy_send_timeout    300s;
+          proxy_connect_timeout 10s;
+        }
+      }
+    }

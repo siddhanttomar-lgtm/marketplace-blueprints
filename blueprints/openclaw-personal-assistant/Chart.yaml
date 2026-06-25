@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 2026.6.18
+description: OpenClaw Personal Assistant — AI Chat Gateway powered by E2E Networks
+  GenAI. No external API keys required. Uses your E2E project infrastructure directly.
+name: openclaw-personal-assistant
+type: application
+version: 2026.6.18

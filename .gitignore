@@ -5,8 +5,9 @@
 # chart-releaser output
 .cr-index/
 
-# Claude Code local memory (not for public repo)
+# Claude Code local memory and instructions (not for public repo)
 .claude/
+CLAUDE.md
 
 # Editor and OS files
 .DS_Store
@@ -16,7 +17,8 @@
 *~
 
 # Local values files with real credentials (root-level only)
-my-values.yaml
-local-values.yaml
+**/my-values.yaml
+**/local-values.yaml
 /*-secret.yaml
+blueprints/*/*-secret.yaml
 !blueprints/

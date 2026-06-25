@@ -1,0 +1,15 @@
+# Patterns to ignore when building packages.
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*~
+.project
+.idea/
+*.tmproj
+img/
+CHANGELOG.md
+README.md
+values.example.yaml

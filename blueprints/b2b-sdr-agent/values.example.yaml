@@ -1,0 +1,27 @@
+# Example values for B2B SDR Agent
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+
+openclaw:
+  gatewayToken: "YOUR-GATEWAY-TOKEN"
+  companyName: "Acme Corp"
+  companyDescription: "We build cloud infrastructure tools for DevOps teams."
+  sdrName: "Alex"
+  # Optional: Gmail for autonomous outreach (required for outbound + reply polling)
+  gmailUser: ""
+  gmailAppPassword: ""   # App Password from myaccount.google.com/apppasswords
+
+# Optional: HubSpot CRM sync
+integrations:
+  hubspot:
+    accessToken: ""   # pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# Optional: Telegram bot integration
+telegram:
+  botToken: ""
+  approvalChatId: ""
+
+# Autonomous outreach engine
+outreach:
+  autoOutreachEnabled: false   # true = fully autonomous; false = drafts require approval
+  leadScoreThreshold: 0
+  maxEmailsPerDay: 50

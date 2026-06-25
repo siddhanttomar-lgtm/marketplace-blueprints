@@ -1,0 +1,7 @@
+apiVersion: v2
+appVersion: 3.16.0
+description: Apache APISIX API Gateway with embedded etcd and Dashboard UI — single-pod,
+  persistent routes via PVC, one-click deploy on E2E Marketplace
+name: apisix
+type: application
+version: 3.3.0

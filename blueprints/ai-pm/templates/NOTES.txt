@@ -1,0 +1,18 @@
+AI Project Manager is deploying. It takes ~2-3 minutes to start.
+
+Once running, open the URL shown in the deployment dashboard.
+Enter your Gateway Token when prompted.
+Select "AI Project Manager" agent and start chatting.
+
+Your Zoho Sprints workspace "{{ .Values.zoho.workspaceId }}" is connected.
+
+Example commands to try:
+  "What projects do I have?"
+  "Show active sprint for <project name>"
+  "Create a task: fix login bug, high priority, assign to alice@company.com"
+  "Move the login bug to the next sprint"
+  "Generate today's standup"
+  "Log 2 hours on the payment task"
+
+Slack standup (optional):
+  If you set a Slack bot token, ask: "Post today's standup to #engineering"

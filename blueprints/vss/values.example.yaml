@@ -1,0 +1,32 @@
+# Example values for NVIDIA VSS Blueprint
+# Copy this file to my-values.yaml, fill in your settings, and deploy.
+# Requires an H100-class GPU node and ~120Gi storage for NIM model caches.
+
+ngcApiKey: "nvapi-YOUR-NGC-API-KEY"
+
+# Required when ownGpu=true (your own GPU VM). Leave blank for E2E managed nodes.
+externalIp: ""
+
+# Optional: HuggingFace token for faster model downloads (free at huggingface.co)
+hfToken: ""
+
+# GPU hardware profile. Leave empty for auto-detect, or set: H100, L40S, RTXPRO6000BW
+nim:
+  hardwareProfile: ""
+  cosmos:
+    cacheSize: 80Gi
+  nemotron:
+    cacheSize: 40Gi
+
+# Feature tiers — enable as needed (SEARCH and ALERTS require kafka.enabled=true)
+rtviEmbed:
+  enabled: false   # semantic video search
+
+rtviVlm:
+  enabled: false   # real-time alert generation
+
+lvs:
+  enabled: false   # long video RAG analysis
+
+kafka:
+  enabled: false   # required for rtviEmbed and rtviVlm
